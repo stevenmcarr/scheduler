@@ -19,15 +19,18 @@ func (scheduler *wmu_scheduler) ShowSignupForm(w http.ResponseWriter, r *http.Re
 	}
 }
 
-func (scheduler *wmu_scheduler) CheckSession(w http.ResponseWriter, r *http.Request) (bool, error) {
+func (scheduler *wmu_scheduler) CheckSession(w http.ResponseWriter, r *http.Request) bool {
 	cookie, err := r.Cookie("session")
 	if err != nil || cookie.Value == "" {
-		http.Redirect(w, r, "/scheduler/signup", http.StatusFound)
-		return false, err
+		return false
 	}
 
 	username := cookie.Value
-	return scheduler.GetUserLoggedInStatus(username)
+	loggedIn, err := scheduler.GetUserLoggedInStatus(username)
+	if err != nil {
+		return false
+	}
+	return loggedIn
 }
 
 func (scheduler *wmu_scheduler) ShowLoginForm(w http.ResponseWriter, r *http.Request) {
