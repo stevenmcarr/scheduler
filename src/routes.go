@@ -7,8 +7,9 @@ import (
 func (scheduler *wmu_scheduler) router() *gin.Engine {
 	r := gin.Default()
 
-	// Apply Apache2 proxy middleware to all routes
-	r.Use(scheduler.Apache2ProxyMiddleware())
+	r.SetTrustedProxies([]string{"127.0.0.1", "::1"})
+
+	// GET routes
 	r.GET("/scheduler/signup", func(c *gin.Context) {
 		scheduler.ShowSignupForm(c.Writer, c.Request)
 	})
@@ -23,5 +24,14 @@ func (scheduler *wmu_scheduler) router() *gin.Engine {
 		}
 		c.String(200, "Welcome to the scheduler!")
 	})
+
+	// POST routes
+	r.POST("/scheduler/login", func(c *gin.Context) {
+		scheduler.LoginUser(c.Writer, c.Request)
+	})
+	r.POST("/scheduler/signup", func(c *gin.Context) {
+		scheduler.SignupUser(c.Writer, c.Request)
+	})
+
 	return r
 }

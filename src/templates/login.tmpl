@@ -17,6 +17,22 @@
             margin-bottom: 20px;
             text-align: center;
         }
+        .error {
+            background: #ffe6e6;
+            color: #d00;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 16px;
+            border: 1px solid #ffcccc;
+        }
+        .success {
+            background: #e6ffe6;
+            color: #006600;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 16px;
+            border: 1px solid #ccffcc;
+        }
         .login-container label {
             display: block;
             margin-bottom: 6px;
@@ -47,9 +63,18 @@
 <body>
     <div class="login-container">
         <h2>WMU Course Scheduler Login</h2>
-        <form method="POST" action="/schedule/login">
-            <label for="username">User Name</label>
-            <input type="text" id="username" name="username" required>
+        
+        {{if .Error}}
+            <div class="error">{{.Error}}</div>
+        {{end}}
+        
+        {{if .Success}}
+            <div class="success">{{.Success}}</div>
+        {{end}}
+        
+        <form method="POST" action="/scheduler/login">
+            <label for="username">Username or Email</label>
+            <input type="text" id="username" name="username" placeholder="Enter username or email" value="{{if .Values}}{{.Values.username}}{{end}}" required>
 
             <label for="password">Password</label>
             <input type="password" id="password" name="password" required>
