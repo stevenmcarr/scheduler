@@ -1,0 +1,75 @@
+{{define "users"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>User Management</title>
+    <style>
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+        th { background: #f4f4f4; }
+        input[type="text"] { width: 95%; }
+        .actions { margin-top: 20px; }
+        .actions button { margin-right: 10px; }
+    </style>
+</head>
+<body>
+    <h1>User List</h1>
+    <form id="usersForm">
+        <table>
+            <thead>
+                <tr>
+                    <th>Username</th>
+                    <th>Email</th>
+                    <th>Is Logged In</th>
+                    <th>Administrator</th>
+                    <th>Delete</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Users}}
+                <tr>
+                    <td>
+                        <input type="text" name="username" value="{{.Username}}">
+                    </td>
+                    <td>
+                        <input type="text" name="email" value="{{.Email}}">
+                    </td>
+                    <td style="text-align: center;">
+                        <input type="checkbox" name="is_logged_in" {{if .IsLoggedIn}}checked{{end}}>
+                    </td>
+                    <td style="text-align: center;">
+                        <input type="checkbox" name="administrator" {{if .Administrator}}checked{{end}}>
+                    </td>
+                    <td style="text-align: center;">
+                        <input type="checkbox" name="delete">
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+        <div class="actions">
+            <button type="button" onclick="submitForm('POST', '/scheduler/usr')">Add User</button>
+            <button type="button" onclick="submitForm('PATCH', '/scheduler/user')">Update</button>
+            <button type="button" onclick="window.location='/scheduler'">Cancel</button>
+        </div>
+    </form>
+    <script>
+        function submitForm(method, url) {
+            const form = document.getElementById('usersForm');
+            const formData = new FormData(form);
+            fetch(url, {
+                method: method,
+                body: formData
+            }).then(response => {
+                if (response.redirected) {
+                    window.location = response.url;
+                } else {
+                    window.location.reload();
+                }
+            });
+        }
+    </script>
+</body>
+</html>
+{{end}}</div>

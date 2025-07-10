@@ -12,7 +12,9 @@ import (
 
 // User represents a user in the system.
 type User struct {
+	ID            int
 	Username      string
+	Email         string
 	Password      string
 	IsLoggedIn    bool
 	Administrator bool
@@ -106,4 +108,133 @@ func (scheduler *wmu_scheduler) GetUserLoggedInStatus(usernameOrEmail string) (b
 		return false, err
 	}
 	return isLoggedIn, nil
+}
+
+func (scheduler *wmu_scheduler) SetUserLoggedInStatus(usernameOrEmail string, isLoggedIn bool) error {
+	_, err := scheduler.database.Exec("UPDATE users SET is_logged_in = ? WHERE username = ? OR email = ?", isLoggedIn, usernameOrEmail, usernameOrEmail)
+	return err
+}
+
+func (scheduler *wmu_scheduler) GetUserByUsername(username string) (*User, error) {
+	var user User
+	err := scheduler.database.QueryRow("SELECT id, username, email, is_logged_in, administrator FROM users WHERE username = ?", username).Scan(&user.ID, &user.Username, &user.Email, &user.IsLoggedIn, &user.Administrator)
+	if err == sql.ErrNoRows {
+		return nil, nil // User not found
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (scheduler *wmu_scheduler) GetUserByEmail(email string) (*User, error) {
+	var user User
+	err := scheduler.database.QueryRow("SELECT id, username, email, is_logged_in, administrator FROM users WHERE email = ?", email).Scan(&user.ID, &user.Username, &user.Email, &user.IsLoggedIn, &user.Administrator)
+	if err == sql.ErrNoRows {
+		return nil, nil // User not found
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+type Schedule struct {
+	ID     int
+	Term   string
+	Year   int
+	Prefix string
+}
+
+func (scheduler *wmu_scheduler) AddSchedule(term string, year int, prefix string) error {
+	_, err := scheduler.database.Exec("INSERT INTO schedules (term, year, prefix) VALUES (?, ?, ?)", term, year, prefix)
+	return err
+}
+
+func (scheduler *wmu_scheduler) DeleteSchedule(term string, year int, prefix string) error {
+	_, err := scheduler.database.Exec("DELETE FROM schedules WHERE term = ? AND year = ? AND prefix = ?", term, year, prefix)
+	return err
+}
+
+func (scheduler *wmu_scheduler) GetSchedule(term string, year int, prefix string) (*Schedule, error) {
+	var schedule Schedule
+	err := scheduler.database.QueryRow("SELECT id, term, year, prefix FROM schedules WHERE term = ? AND year = ? AND prefix = ?", term, year, prefix).Scan(&schedule.ID, &schedule.Term, &schedule.Year, &schedule.Prefix)
+	if err == sql.ErrNoRows {
+		return nil, nil // Schedule not found
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &schedule, nil
+}
+
+func (scheduler *wmu_scheduler) GetAllSchedules() ([]Schedule, error) {
+	rows, err := scheduler.database.Query("SELECT id, term, year, prefix FROM schedules")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var schedules []Schedule
+	for rows.Next() {
+		var schedule Schedule
+		if err := rows.Scan(&schedule.ID, &schedule.Term, &schedule.Year, &schedule.Prefix); err != nil {
+			return nil, err
+		}
+		schedules = append(schedules, schedule)
+	}
+	return schedules, nil
+}
+
+func (scheduler *wmu_scheduler) UpdateSchedule(term string, year int, prefix string) error {
+	_, err := scheduler.database.Exec("UPDATE schedules SET term = ?, year = ?, prefix = ? WHERE term = ? AND year = ? AND prefix = ?", term, year, prefix, term, year, prefix)
+	return err
+}
+
+func (scheduler *wmu_scheduler) GetScheduleByID(id int) (*Schedule, error) {
+	var schedule Schedule
+	err := scheduler.database.QueryRow("SELECT id, term, year, prefix FROM schedules WHERE id = ?", id).Scan(&schedule.ID, &schedule.Term, &schedule.Year, &schedule.Prefix)
+	if err == sql.ErrNoRows {
+		return nil, nil // Schedule not found
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &schedule, nil
+}
+
+func (scheduler *wmu_scheduler) GetSchedulesByTerm(term string) ([]Schedule, error) {
+	rows, err := scheduler.database.Query("SELECT id, term, year, prefix FROM schedules WHERE term = ?", term)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var schedules []Schedule
+	for rows.Next() {
+		var schedule Schedule
+		if err := rows.Scan(&schedule.ID, &schedule.Term, &schedule.Year, &schedule.Prefix); err != nil {
+			return nil, err
+		}
+		schedules = append(schedules, schedule)
+	}
+	return schedules, nil
+}
+
+func (scheduler *wmu_scheduler) GetSchedulesByYear(year int) ([]Schedule, error) {
+	rows, err := scheduler.database.Query("SELECT id, term, prefix FROM schedules WHERE year = ?", year)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var schedules []Schedule
+	for rows.Next() {
+		var schedule Schedule
+		if err := rows.Scan(&schedule.ID, &schedule.Term, &schedule.Prefix); err != nil {
+			return nil, err
+		}
+		schedules = append(schedules, schedule)
+	}
+	return schedules, nil
 }

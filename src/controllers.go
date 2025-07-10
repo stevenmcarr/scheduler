@@ -18,7 +18,7 @@ func (scheduler *wmu_scheduler) ShowSignupForm(w http.ResponseWriter, r *http.Re
 }
 
 func (scheduler *wmu_scheduler) renderSignupForm(w http.ResponseWriter, errorMsg, successMsg string, values map[string]string) {
-	tmplPath := filepath.Join("templates", "signup.tmpl")
+	tmplPath := filepath.Join("templates", "signup.html")
 	tmpl, err := template.ParseFiles(tmplPath)
 	if err != nil {
 		http.Error(w, "Error loading signup form", http.StatusInternalServerError)
@@ -44,7 +44,7 @@ func (scheduler *wmu_scheduler) ShowLoginForm(w http.ResponseWriter, r *http.Req
 }
 
 func (scheduler *wmu_scheduler) renderLoginForm(w http.ResponseWriter, errorMsg, successMsg string, values map[string]string) {
-	tmplPath := filepath.Join("templates", "login.tmpl")
+	tmplPath := filepath.Join("templates", "login.html")
 	tmpl, err := template.ParseFiles(tmplPath)
 	if err != nil {
 		http.Error(w, "Error loading login form", http.StatusInternalServerError)
