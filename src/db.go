@@ -140,10 +140,12 @@ func (scheduler *wmu_scheduler) GetUserByEmail(email string) (*User, error) {
 }
 
 type Schedule struct {
-	ID     int
-	Term   string
-	Year   int
-	Prefix string
+	ID         int
+	Term       string
+	Year       int
+	Department string
+	Prefix     string
+	Created    string
 }
 
 func (scheduler *wmu_scheduler) AddSchedule(term string, year int, prefix string) error {
@@ -169,7 +171,13 @@ func (scheduler *wmu_scheduler) GetSchedule(term string, year int, prefix string
 }
 
 func (scheduler *wmu_scheduler) GetAllSchedules() ([]Schedule, error) {
-	rows, err := scheduler.database.Query("SELECT id, term, year, prefix FROM schedules")
+	rows, err := scheduler.database.Query(`
+		SELECT s.id, s.term, s.year, p.prefix, d.name, s.created_at 
+		FROM schedules s
+		JOIN prefixes p ON s.prefix_id = p.id
+		JOIN departments d ON s.department_id = d.id
+		ORDER BY s.year DESC, s.term, d.name, p.prefix
+	`)
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +186,7 @@ func (scheduler *wmu_scheduler) GetAllSchedules() ([]Schedule, error) {
 	var schedules []Schedule
 	for rows.Next() {
 		var schedule Schedule
-		if err := rows.Scan(&schedule.ID, &schedule.Term, &schedule.Year, &schedule.Prefix); err != nil {
+		if err := rows.Scan(&schedule.ID, &schedule.Term, &schedule.Year, &schedule.Prefix, &schedule.Department, &schedule.Created); err != nil {
 			return nil, err
 		}
 		schedules = append(schedules, schedule)

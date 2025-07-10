@@ -1,0 +1,80 @@
+{{define "prefixes"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Prefixes - WMU Course Scheduler</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+        .content { margin: 24px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+        th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .button-row { display: flex; gap: 12px; justify-content: flex-end; margin-bottom: 20px; }
+        button { padding: 8px 16px; font-size: 14px; cursor: pointer; }
+        .add-btn { background-color: #4CAF50; color: white; border: none; border-radius: 4px; }
+        .add-btn:hover { background-color: #45a049; }
+        .admin-warning { background-color: #ffeb3b; padding: 10px; border-radius: 4px; margin-bottom: 20px; }
+        .prefix-code { font-family: monospace; font-weight: bold; background: #f0f0f0; padding: 2px 6px; border-radius: 3px; }
+        .filter-section { background: #f5f5f5; padding: 15px; border-radius: 4px; margin-bottom: 20px; }
+        .filter-row { display: flex; gap: 15px; align-items: center; }
+        select, input { padding: 6px 10px; border: 1px solid #ccc; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    {{template "navbar" .}}
+    <div class="content">
+        <h1>Course Prefix Management</h1>
+        <div class="admin-warning">
+            <strong>Administrator Access:</strong> You can manage course prefixes and their department assignments.
+        </div>
+        
+        <div class="filter-section">
+            <div class="filter-row">
+                <label>Filter by Department:</label>
+                <select id="departmentFilter">
+                    <option value="">All Departments</option>
+                    {{range .Departments}}
+                    <option value="{{.ID}}">{{.Name}}</option>
+                    {{end}}
+                </select>
+                <label>Search Prefix:</label>
+                <input type="text" id="prefixSearch" placeholder="Enter prefix code...">
+                <button type="button">Filter</button>
+                <button type="button">Clear</button>
+            </div>
+        </div>
+        
+        <div class="button-row">
+            <button type="button" class="add-btn">Add New Prefix</button>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Prefix Code</th>
+                    <th>Department</th>
+                    <th>Courses Using Prefix</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Prefixes}}
+                <tr>
+                    <td><span class="prefix-code">{{.Prefix}}</span></td>
+                    <td>{{.Department}}</td>
+                    <td>{{.CourseCount}} courses</td>
+                    <td>{{.CreatedAt}}</td>
+                    <td>
+                        <button type="button">Edit</button>
+                        <button type="button">View Courses</button>
+                        <button type="button">Delete</button>
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>
+{{end}}

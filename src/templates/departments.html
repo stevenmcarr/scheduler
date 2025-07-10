@@ -1,0 +1,83 @@
+{{define "departments"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Departments - WMU Course Scheduler</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+        .content { margin: 24px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+        th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .button-row { display: flex; gap: 12px; justify-content: flex-end; margin-bottom: 20px; }
+        button { padding: 8px 16px; font-size: 14px; cursor: pointer; }
+        .add-btn { background-color: #4CAF50; color: white; border: none; border-radius: 4px; }
+        .add-btn:hover { background-color: #45a049; }
+        .admin-warning { background-color: #ffeb3b; padding: 10px; border-radius: 4px; margin-bottom: 20px; }
+        .stats-card { background: #f5f5f5; padding: 15px; border-radius: 4px; margin-bottom: 20px; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
+        .stat-item { text-align: center; }
+        .stat-number { font-size: 24px; font-weight: bold; color: #8B4513; }
+        .stat-label { font-size: 14px; color: #666; }
+    </style>
+</head>
+<body>
+    {{template "navbar" .}}
+    <div class="content">
+        <h1>Department Management</h1>
+        <div class="admin-warning">
+            <strong>Administrator Access:</strong> You can manage departments, view associated prefixes and instructors.
+        </div>
+        
+        <div class="stats-card">
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <div class="stat-number">{{.TotalDepartments}}</div>
+                    <div class="stat-label">Total Departments</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number">{{.TotalPrefixes}}</div>
+                    <div class="stat-label">Course Prefixes</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number">{{.TotalInstructors}}</div>
+                    <div class="stat-label">Total Instructors</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="button-row">
+            <button type="button" class="add-btn">Add New Department</button>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Department Name</th>
+                    <th>Prefixes</th>
+                    <th>Instructors</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Departments}}
+                <tr>
+                    <td>{{.Name}}</td>
+                    <td>{{.PrefixCount}} prefixes</td>
+                    <td>{{.InstructorCount}} instructors</td>
+                    <td>{{.CreatedAt}}</td>
+                    <td>
+                        <button type="button">Edit</button>
+                        <button type="button">View Prefixes</button>
+                        <button type="button">View Instructors</button>
+                        <button type="button">Delete</button>
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>
+{{end}}

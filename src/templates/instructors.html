@@ -1,0 +1,62 @@
+{{define "instructors"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Instructors - WMU Course Scheduler</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+        .content { margin: 24px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+        th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .button-row { display: flex; gap: 12px; justify-content: flex-end; margin-bottom: 20px; }
+        button { padding: 8px 16px; font-size: 14px; cursor: pointer; }
+        .add-btn { background-color: #4CAF50; color: white; border: none; border-radius: 4px; }
+        .add-btn:hover { background-color: #45a049; }
+        .status-badge { padding: 4px 8px; border-radius: 4px; font-size: 12px; }
+        .status-full-time { background-color: #4CAF50; color: white; }
+        .status-part-time { background-color: #FF9800; color: white; }
+        .status-ta { background-color: #2196F3; color: white; }
+    </style>
+</head>
+<body>
+    {{template "navbar" .}}
+    <div class="content">
+        <h1>Instructors</h1>
+        <div class="button-row">
+            <button type="button" class="add-btn">Add New Instructor</button>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Department</th>
+                    <th>Status</th>
+                    <th>Email</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Instructors}}
+                <tr>
+                    <td>{{.FirstName}} {{.LastName}}</td>
+                    <td>{{.Department}}</td>
+                    <td>
+                        <span class="status-badge status-{{.Status | replace " " "-"}}">
+                            {{.Status}}
+                        </span>
+                    </td>
+                    <td>{{.Email}}</td>
+                    <td>
+                        <button type="button">Edit</button>
+                        <button type="button">Delete</button>
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>
+{{end}}

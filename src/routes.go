@@ -22,7 +22,7 @@ func (scheduler *wmu_scheduler) router() *gin.Engine {
 			c.Redirect(302, "/scheduler/login")
 			return
 		}
-		c.String(200, "Welcome to the scheduler!")
+		scheduler.RenderHomePage(c.Writer, c.Request)
 	})
 
 	// POST routes

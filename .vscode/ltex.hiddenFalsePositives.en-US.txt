@@ -1,0 +1,1 @@
+{"rule":"SENTENCE_WHITESPACE","sentence":"^\\QTitle}} - WMU Course Scheduler\\E$"}

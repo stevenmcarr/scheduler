@@ -1,0 +1,145 @@
+{{define "WMU Course Scheduler"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>WMU Course Scheduler</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+        .content { margin: 24px; }
+        
+        /* Table container with scrollbars */
+        .table-container {
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            overflow: auto;
+            max-height: 420px; /* Approximately 10 rows (42px per row) */
+            margin-bottom: 24px;
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin: 0;
+            min-width: 600px; /* Ensures horizontal scrollbar when needed */
+        }
+        
+        th, td { 
+            border: 1px solid #ccc; 
+            padding: 8px; 
+            text-align: left;
+            white-space: nowrap; /* Prevents text wrapping */
+        }
+        
+        th { 
+            background-color: #f2f2f2; 
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            border-bottom: 2px solid #999;
+        }
+        
+        /* Zebra striping for better readability */
+        tbody tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        
+        tbody tr:hover {
+            background-color: #e8f4f8;
+        }
+        
+        .button-row { 
+            display: flex; 
+            gap: 12px; 
+            justify-content: flex-end; 
+        }
+        
+        button { 
+            padding: 8px 16px; 
+            font-size: 14px; 
+            cursor: pointer;
+            border: 1px solid #ccc;
+            background-color: #f5f5f5;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+        }
+        
+        button:hover {
+            background-color: #e0e0e0;
+        }
+        
+        /* Scrollbar styling for webkit browsers */
+        .table-container::-webkit-scrollbar {
+            width: 12px;
+            height: 12px;
+        }
+        
+        .table-container::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 6px;
+        }
+        
+        .table-container::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 6px;
+        }
+        
+        .table-container::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        
+        /* Table info */
+        .table-info {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 10px;
+            text-align: right;
+        }
+    </style>
+</head>
+<body>
+    {{template "navbar" .}}
+    <div class="content">
+        <h1>Course Schedules</h1>
+        <div class="table-info">
+            Showing {{len .Schedules}} schedule(s) - Scroll to see more
+        </div>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Term</th>
+                        <th>Year</th>
+                        <th>Prefix</th>
+                        <th>Department</th>
+                        <th>Created</th>
+                        <th>Select</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Schedules}}
+                    <tr>
+                        <td>{{.Term}}</td>
+                        <td>{{.Year}}</td>
+                        <td>{{.Prefix}}</td>
+                        <td>{{.Department}}</td>
+                        <td>{{.Created}}</td>
+                        <td><input type="checkbox" name="select_schedule" value="{{.ID}}"></td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+        <div class="button-row">
+            <button type="button">List Courses</button>
+            <button type="button">Import Schedule</button>
+            <button type="button">Export Schedule</button>
+            <button type="button">Delete Schedule</button>
+            <button type="button">Copy Schedule</button>
+        </div>
+    </div>
+</body>
+</html>
+{{end}}

@@ -1,0 +1,32 @@
+{{define "base"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{.Title}} - WMU Course Scheduler</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+        .content { margin: 24px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+        th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .button-row { display: flex; gap: 12px; justify-content: flex-end; margin-bottom: 20px; }
+        button { padding: 8px 16px; font-size: 14px; cursor: pointer; }
+        .add-btn { background-color: #4CAF50; color: white; border: none; border-radius: 4px; }
+        .add-btn:hover { background-color: #45a049; }
+        .edit-btn { background-color: #2196F3; color: white; border: none; border-radius: 4px; }
+        .edit-btn:hover { background-color: #1976D2; }
+        .delete-btn { background-color: #f44336; color: white; border: none; border-radius: 4px; }
+        .delete-btn:hover { background-color: #d32f2f; }
+        {{block "additional-styles".}}
+        {{end}}
+    </style>
+</head>
+<body>
+    {{template "navbar" .}}
+    <div class="content">
+        {{block "content" .}}{{end}}
+    </div>
+</body>
+</html>
+{{end}}

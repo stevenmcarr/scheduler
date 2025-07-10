@@ -1,0 +1,152 @@
+{{define "navbar"}}
+<nav class="top-navbar">
+    <div class="navbar-container">
+        <div class="navbar-brand">
+            <a href="/">WMU Course Scheduler</a>
+        </div>
+        <div class="navbar-menu">
+            <div class="navbar-left">
+                <a href="/" class="navbar-item">Schedules</a>
+                <a href="/courses" class="navbar-item">Courses</a>
+                <a href="/rooms" class="navbar-item">Rooms</a>
+                <a href="/timeslots" class="navbar-item">Timeslots</a>
+            </div>
+            <div class="navbar-right">
+                {{if .User.Administrator}}
+                <div class="admin-section">
+                    <a href="/instructors" class="navbar-item">Instructors</a>
+                    <a href="/departments" class="navbar-item admin-item">Departments</a>
+                    <a href="/prefixes" class="navbar-item admin-item">Prefixes</a>
+                    <a href="/users" class="navbar-item admin-item">Users</a>
+                </div>
+                {{end}}
+                <div class="user-section">
+                    <span class="navbar-item user-info">Welcome, {{.User.Username}}</span>
+                    <a href="/logout" class="navbar-item logout-btn">Logout</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</nav>
+<style>
+    .top-navbar {
+        background-color: #8B4513;
+        color: white;
+        padding: 0;
+        margin-bottom: 20px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .navbar-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0 20px;
+        height: 60px;
+    }
+    
+    .navbar-brand a {
+        color: white;
+        text-decoration: none;
+        font-size: 24px;
+        font-weight: bold;
+    }
+    
+    .navbar-menu {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex: 1;
+        margin-left: 40px;
+    }
+    
+    .navbar-left,
+    .navbar-right {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+    }
+    
+    .navbar-item {
+        color: white;
+        text-decoration: none;
+        padding: 8px 16px;
+        border-radius: 4px;
+        transition: background-color 0.3s;
+    }
+    
+    .navbar-item:hover {
+        background-color: rgba(255, 255, 255, 0.1);
+    }
+    
+    .admin-section {
+        display: flex;
+        gap: 15px;
+        border-left: 1px solid rgba(255, 255, 255, 0.3);
+        padding-left: 20px;
+    }
+    
+    .admin-item {
+        background-color: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+    }
+    
+    .admin-item:hover {
+        background-color: rgba(255, 255, 255, 0.2);
+    }
+    
+    .user-section {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        border-left: 1px solid rgba(255, 255, 255, 0.3);
+        padding-left: 20px;
+    }
+    
+    .user-info {
+        font-size: 14px;
+        opacity: 0.9;
+    }
+    
+    .logout-btn {
+        background-color: #d32f2f;
+        border: 1px solid #d32f2f;
+    }
+    
+    .logout-btn:hover {
+        background-color: #b71c1c;
+    }
+    
+    /* Responsive design */
+    @media (max-width: 768px) {
+        .navbar-container {
+            flex-direction: column;
+            height: auto;
+            padding: 10px;
+        }
+        
+        .navbar-menu {
+            flex-direction: column;
+            width: 100%;
+            margin-left: 0;
+            margin-top: 10px;
+        }
+        
+        .navbar-left,
+        .navbar-right {
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .admin-section,
+        .user-section {
+            border-left: none;
+            border-top: 1px solid rgba(255, 255, 255, 0.3);
+            padding-left: 0;
+            padding-top: 10px;
+        }
+    }
+</style>
+{{end}}

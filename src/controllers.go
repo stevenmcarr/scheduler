@@ -63,6 +63,52 @@ func (scheduler *wmu_scheduler) renderLoginForm(w http.ResponseWriter, errorMsg,
 	}
 }
 
+func (scheduler *wmu_scheduler) RenderHomePage(w http.ResponseWriter, r *http.Request) {
+	// Check if user is logged in
+	if !scheduler.CheckSession(w, r) {
+		http.Redirect(w, r, "/scheduler/login", http.StatusFound)
+		return
+	}
+
+	// Get current user for navbar
+	cookie, _ := r.Cookie("session")
+	username := cookie.Value
+	user, err := scheduler.GetUserByUsername(username)
+	if err != nil {
+		http.Error(w, "Error fetching user data", http.StatusInternalServerError)
+		return
+	}
+
+	// Parse both navbar and home templates
+	tmplPath := filepath.Join("templates", "home.html")
+	navbarPath := filepath.Join("templates", "navbar.html")
+	tmpl, err := template.ParseFiles(tmplPath, navbarPath)
+	if err != nil {
+		http.Error(w, "Error loading home page", http.StatusInternalServerError)
+		return
+	}
+
+	schedules, err := scheduler.GetAllSchedules()
+	if err != nil {
+		http.Error(w, "Error fetching schedules", http.StatusInternalServerError)
+		return
+	}
+
+	// Construct the data structure expected by the template
+	data := struct {
+		User      *User
+		Schedules []Schedule
+	}{
+		User:      user,
+		Schedules: schedules,
+	}
+
+	err = tmpl.ExecuteTemplate(w, "WMU Course Scheduler", data)
+	if err != nil {
+		http.Error(w, "Error rendering home page", http.StatusInternalServerError)
+	}
+}
+
 func (scheduler *wmu_scheduler) CheckSession(w http.ResponseWriter, r *http.Request) bool {
 	cookie, err := r.Cookie("session")
 	if err != nil || cookie.Value == "" {
@@ -106,6 +152,14 @@ func (scheduler *wmu_scheduler) LoginUser(w http.ResponseWriter, r *http.Request
 		Name:  "session",
 		Value: username,
 	})
+
+	err = scheduler.SetUserLoggedInStatus(username, true)
+
+	if err != nil {
+		scheduler.renderLoginForm(w, "Error updating login status: "+err.Error(), "", values)
+		return
+	}
+
 	http.Redirect(w, r, "/scheduler", http.StatusFound)
 }
 
