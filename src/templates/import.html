@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Import Excel Schedule - WMU Course Scheduler</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+        .content { margin: 24px; }
+        .import-form {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background-color: #f9f9f9;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"], input[type="number"], input[type="file"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .info {
+            background-color: #e7f3ff;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            border-left: 4px solid #007bff;
+        }
+        .error {
+            background-color: #ffe6e6;
+            color: #d00;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 16px;
+            border: 1px solid #ffcccc;
+        }
+        .success {
+            background-color: #e6ffe6;
+            color: #006600;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 16px;
+            border: 1px solid #ccffcc;
+        }
+        #progress {
+            display: none;
+            margin-top: 20px;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #f0f0f0;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background-color: #007bff;
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    {{template "navbar" .}}
+    <div class="content">
+        <h1>Import Excel Schedule</h1>
+        
+        <div class="info">
+            <h3>Import Instructions:</h3>
+            <ul>
+                <li>Upload an Excel file (.xlsx) containing course schedule data</li>
+                <li>The file should have headers in row 5 including: CRN, Course ID, Section, Title, etc.</li>
+                <li>Course data should start from row 6</li>
+                <li>The import will create missing instructors, rooms, and time slots automatically</li>
+                <li>Existing courses with the same CRN will be updated</li>
+            </ul>
+        </div>
+
+        <div class="import-form">
+            <form id="importForm" enctype="multipart/form-data">
+                <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+                
+                <div class="form-group">
+                    <label for="term">Term:</label>
+                    <input type="text" id="term" name="term" value="Spring" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="year">Year:</label>
+                    <input type="number" id="year" name="year" value="2026" min="2020" max="2030" required>
+                </div>
+                <div class="form-group">
+                    <label for="prefix">Prefix:</label>
+                    <select id="prefix" name="prefix" required>
+                        <option value="">-- Select Prefix --</option>
+                        {{range .Prefixes}}
+                            <option value="{{.}}">{{.}}</option>
+                        {{end}}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="excel_file">Excel File:</label>
+                    <input type="file" id="excel_file" name="excel_file" accept=".xlsx,.xls" required>
+                </div>
+
+                <button type="submit">Import Excel File</button>
+            </form>
+
+            <div id="progress">
+                <p>Importing...</p>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <div id="result"></div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('importForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            const progressDiv = document.getElementById('progress');
+            const resultDiv = document.getElementById('result');
+            
+            // Show progress
+            progressDiv.style.display = 'block';
+            resultDiv.innerHTML = '';
+            
+            // Simulate progress (since we don't have real progress tracking)
+            let progress = 0;
+            const progressBar = document.querySelector('.progress-fill');
+            const progressInterval = setInterval(() => {
+                progress += 10;
+                progressBar.style.width = progress + '%';
+                if (progress >= 90) {
+                    clearInterval(progressInterval);
+                }
+            }, 500);
+            
+            fetch('/scheduler/import', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                clearInterval(progressInterval);
+                progressBar.style.width = '100%';
+                
+                setTimeout(() => {
+                    progressDiv.style.display = 'none';
+                    
+                    if (data.error) {
+                        resultDiv.innerHTML = '<div class="error">Error: ' + data.error + '</div>';
+                    } else {
+                        resultDiv.innerHTML = '<div class="success">' + data.message + '</div>';
+                        document.getElementById('importForm').reset();
+                    }
+                }, 1000);
+            })
+            .catch(error => {
+                clearInterval(progressInterval);
+                progressDiv.style.display = 'none';
+                resultDiv.innerHTML = '<div class="error">Error: ' + error.message + '</div>';
+            });
+        });
+    </script>
+</body>
+</html>

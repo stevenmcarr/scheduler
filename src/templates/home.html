@@ -1,4 +1,3 @@
-{{define "WMU Course Scheduler"}}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -133,13 +132,33 @@
             </table>
         </div>
         <div class="button-row">
-            <button type="button">List Courses</button>
-            <button type="button">Import Schedule</button>
+            <button type="button" onclick="listCourses()">List Courses</button>
+            <script>
+                function listCourses() {
+                    var checked = document.querySelector('input[name="select_schedule"]:checked');
+                    if (checked) {
+                        window.location.href = '/scheduler/courses?schedule_id=' + encodeURIComponent(checked.value);
+                    } else {
+                        alert('Please select a schedule to list courses.');
+                    }
+                }
+            </script>
+            <button type="button" onclick="location.href='/scheduler/import'">Import Schedule</button>
             <button type="button">Export Schedule</button>
-            <button type="button">Delete Schedule</button>
+            <button type="button" onclick="deleteSchedule()">Delete Schedule</button>
+            <script>
+                function deleteSchedule() {
+                    var checked = document.querySelector('input[name="select_schedule"]:checked');
+                    if (checked) {
+                        window.location.href = '/scheduler/delete?schedule_id=' + encodeURIComponent(checked.value);
+                    } else {
+                        alert('Please select a schedule to delete.');
+                    }
+                }
+            </script>
+            </script></form>
             <button type="button">Copy Schedule</button>
         </div>
     </div>
 </body>
 </html>
-{{end}}

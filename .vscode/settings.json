@@ -1,0 +1,12 @@
+{
+  "html.validate.scripts": false,
+  "html.validate.styles": false,
+  "html.problems.maxNumberOfProblems": 0,
+  "files.associations": {
+    "*.html": "html"
+  },
+  "emmet.includeLanguages": {
+    "html": "html"
+  },
+  "html.format.enable": false
+}

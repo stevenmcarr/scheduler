@@ -2,27 +2,28 @@
 <nav class="top-navbar">
     <div class="navbar-container">
         <div class="navbar-brand">
-            <a href="/">WMU Course Scheduler</a>
+            <a href="/scheduler">WMU Course Scheduler</a>
         </div>
         <div class="navbar-menu">
             <div class="navbar-left">
-                <a href="/" class="navbar-item">Schedules</a>
-                <a href="/courses" class="navbar-item">Courses</a>
-                <a href="/rooms" class="navbar-item">Rooms</a>
-                <a href="/timeslots" class="navbar-item">Timeslots</a>
+                <a href="/scheduler" class="navbar-item">Schedules</a>
+                <a href="/scheduler/courses" class="navbar-item">Courses</a>
+                <a href="/scheduler/rooms" class="navbar-item">Rooms</a>
+                <a href="/scheduler/timeslots" class="navbar-item">Timeslots</a>
             </div>
             <div class="navbar-right">
                 {{if .User.Administrator}}
                 <div class="admin-section">
-                    <a href="/instructors" class="navbar-item">Instructors</a>
-                    <a href="/departments" class="navbar-item admin-item">Departments</a>
-                    <a href="/prefixes" class="navbar-item admin-item">Prefixes</a>
-                    <a href="/users" class="navbar-item admin-item">Users</a>
+                    <a href="/scheduler/instructors" class="navbar-item">Instructors</a>
+                    <a href="/scheduler/departments" class="navbar-item admin-item">Departments</a>
+                    <a href="/scheduler/prefixes" class="navbar-item admin-item">Prefixes</a>
+                    <a href="/scheduler/users" class="navbar-item admin-item">Users</a>
+                    <a href="/scheduler/import" class="navbar-item admin-item">Import</a>
                 </div>
                 {{end}}
                 <div class="user-section">
                     <span class="navbar-item user-info">Welcome, {{.User.Username}}</span>
-                    <a href="/logout" class="navbar-item logout-btn">Logout</a>
+                    <a href="/scheduler/logout" class="navbar-item logout-btn">Logout</a>
                 </div>
             </div>
         </div>
