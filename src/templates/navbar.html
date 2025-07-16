@@ -2,7 +2,7 @@
 <nav class="top-navbar">
     <div class="navbar-container">
         <div class="navbar-brand">
-            <a href="/scheduler">WMU Course Scheduler</a>
+            <a href="/scheduler">WMU Scheduler</a>
         </div>
         <div class="navbar-menu">
             <div class="navbar-left">
@@ -12,7 +12,7 @@
                 <a href="/scheduler/timeslots" class="navbar-item">Timeslots</a>
             </div>
             <div class="navbar-right">
-                {{if .User.Administrator}}
+                {{if and .User .User.Administrator}}
                 <div class="admin-section">
                     <a href="/scheduler/instructors" class="navbar-item">Instructors</a>
                     <a href="/scheduler/departments" class="navbar-item admin-item">Departments</a>
@@ -22,7 +22,7 @@
                 </div>
                 {{end}}
                 <div class="user-section">
-                    <span class="navbar-item user-info">Welcome, {{.User.Username}}</span>
+                    <span class="navbar-item user-info">Welcome, {{if .User}}{{.User.Username}}{{else}}Guest{{end}}</span>
                     <a href="/scheduler/logout" class="navbar-item logout-btn">Logout</a>
                 </div>
             </div>

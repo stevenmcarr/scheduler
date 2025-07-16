@@ -150,8 +150,10 @@ func (scheduler *wmu_scheduler) router() *gin.Engine {
 	})
 	// Logout route
 	r.GET("/scheduler/logout", func(c *gin.Context) {
-		// Clear session cookie
-		c.SetCookie("session", "", -1, "/", "", false, true)
+		// Clear session using Gin sessions middleware
+		session := sessions.Default(c)
+		session.Clear()
+		session.Save()
 		// Redirect to login page
 		c.Redirect(http.StatusFound, "/scheduler/login")
 	})

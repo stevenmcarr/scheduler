@@ -73,7 +73,7 @@
         {{end}}
         
         <form method="POST" action="/scheduler/login">
-            <input type="hidden" name="_csrf" value="{{.CSRFToken}}">>
+            <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
             <label for="username">Username or Email</label>
             <input type="text" id="username" name="username" placeholder="Enter username or email" value="{{if .Values}}{{.Values.username}}{{end}}" required>
 

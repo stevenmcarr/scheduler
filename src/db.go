@@ -337,13 +337,22 @@ type Course struct {
 
 func (scheduler *wmu_scheduler) GetAllCourses(schedule_id int) ([]Course, error) {
 	rows, err := scheduler.database.Query(`
-		SELECT c.id, c.crn, c.section, p.prefix, c.course_number, c.title, c.min_credits, c.max_credits, c.min_contact, c.max_contact, c.cap, c.approval, c.lab, i.last_name, i.first_name, t.M, t.T, t.W, t.R, t.F, t.start_time, t.end_time, r.building, r.room_number, r.capacity, r.computer_lab, r.dedicated_lab, c.mode, c.status, c.comment
+		SELECT c.id, c.crn, c.section, p.prefix, c.course_number, c.title, c.min_credits, c.max_contact, c.cap, c.approval, c.lab, 
+		       COALESCE(CONCAT(i.first_name, ' ', i.last_name), '') as instructor_name, 
+		       COALESCE(CONCAT(t.start_time, '-', t.end_time, ' ', 
+		                      CASE WHEN t.M THEN 'M' ELSE '' END,
+		                      CASE WHEN t.T THEN 'T' ELSE '' END,
+		                      CASE WHEN t.W THEN 'W' ELSE '' END,
+		                      CASE WHEN t.R THEN 'R' ELSE '' END,
+		                      CASE WHEN t.F THEN 'F' ELSE '' END), '') as time_str, 
+		       COALESCE(CONCAT(r.building, ' ', r.room_number), '') as room_str, 
+		       c.mode, c.status, c.comment
 		FROM courses c
 		JOIN schedules s ON c.schedule_id = s.id
 		JOIN prefixes p ON s.prefix_id = p.id
-		JOIN instructors i ON c.instructor_id = i.id
-		JOIN time_slots t ON c.timeslot_id = t.id
-		JOIN rooms r ON c.room_id = r.id
+		LEFT JOIN instructors i ON c.instructor_id = i.id
+		LEFT JOIN time_slots t ON c.timeslot_id = t.id
+		LEFT JOIN rooms r ON c.room_id = r.id
 		WHERE c.schedule_id = ?
 		ORDER BY c.course_number, c.crn, c.section
 	`, schedule_id)
@@ -364,16 +373,16 @@ func (scheduler *wmu_scheduler) GetAllCourses(schedule_id int) ([]Course, error)
 }
 
 type Room struct {
-	ID         int
-	Building   string
-	RoomNumber string
-	Capacity   int
-	Lab        bool
-	Dedicated  bool
+	ID           int
+	Building     string
+	RoomNumber   string
+	Capacity     int
+	ComputerLab  bool
+	DedicatedLab bool
 }
 
 func (scheduler *wmu_scheduler) GetAllRooms() ([]Room, error) {
-	rows, err := scheduler.database.Query("SELECT id,building, room_number, capacity, lab, dedicated FROM rooms")
+	rows, err := scheduler.database.Query("SELECT id,building, room_number, capacity, computer_lab, dedicated_lab FROM rooms")
 	if err != nil {
 		return nil, err
 	}
@@ -382,7 +391,7 @@ func (scheduler *wmu_scheduler) GetAllRooms() ([]Room, error) {
 	var rooms []Room
 	for rows.Next() {
 		var room Room
-		if err := rows.Scan(&room.ID, &room.Building, &room.RoomNumber, &room.Capacity, &room.Lab, &room.Dedicated); err != nil {
+		if err := rows.Scan(&room.ID, &room.Building, &room.RoomNumber, &room.Capacity, &room.ComputerLab, &room.DedicatedLab); err != nil {
 			return nil, err
 		}
 		rooms = append(rooms, room)
@@ -390,17 +399,28 @@ func (scheduler *wmu_scheduler) GetAllRooms() ([]Room, error) {
 	return rooms, nil
 }
 
-func (scheduler *wmu_scheduler) GetAllPrefixes() ([]string, error) {
-	rows, err := scheduler.database.Query("SELECT prefix FROM prefixes ORDER BY prefix")
+type Prefix struct {
+	ID         int
+	Prefix     string
+	Department string
+}
+
+func (scheduler *wmu_scheduler) GetAllPrefixes() ([]Prefix, error) {
+	rows, err := scheduler.database.Query(`
+		SELECT p.prefix, d.name
+		FROM prefixes p
+		JOIN departments d ON p.department_id = d.id
+		ORDER BY p.prefix
+	`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var prefixes []string
+	var prefixes []Prefix
 	for rows.Next() {
-		var prefix string
-		if err := rows.Scan(&prefix); err != nil {
+		var prefix Prefix
+		if err := rows.Scan(&prefix.Prefix, &prefix.Department); err != nil {
 			return nil, err
 		}
 		prefixes = append(prefixes, prefix)
@@ -410,14 +430,18 @@ func (scheduler *wmu_scheduler) GetAllPrefixes() ([]string, error) {
 
 type TimeSlot struct {
 	ID        int
-	Days      string
 	StartTime string
 	EndTime   string
+	Monday    bool
+	Tuesday   bool
+	Wednesday bool
+	Thursday  bool
+	Friday    bool
 }
 
 // GetAllTimeSlots retrieves all time slots from the database
 func (scheduler *wmu_scheduler) GetAllTimeSlots() ([]TimeSlot, error) {
-	query := "SELECT id, days, start_time, end_time FROM time_slots ORDER BY days, start_time"
+	query := "SELECT id, start_time, end_time, M, T, W, R, F FROM time_slots ORDER BY start_time, end_time, M, T, W, R, F"
 	rows, err := scheduler.database.Query(query)
 	if err != nil {
 		return nil, err
@@ -427,7 +451,7 @@ func (scheduler *wmu_scheduler) GetAllTimeSlots() ([]TimeSlot, error) {
 	var timeslots []TimeSlot
 	for rows.Next() {
 		var timeslot TimeSlot
-		err := rows.Scan(&timeslot.ID, &timeslot.Days, &timeslot.StartTime, &timeslot.EndTime)
+		err := rows.Scan(&timeslot.ID, &timeslot.StartTime, &timeslot.EndTime, &timeslot.Monday, &timeslot.Tuesday, &timeslot.Wednesday, &timeslot.Thursday, &timeslot.Friday)
 		if err != nil {
 			return nil, err
 		}
@@ -439,14 +463,20 @@ func (scheduler *wmu_scheduler) GetAllTimeSlots() ([]TimeSlot, error) {
 
 type Instructor struct {
 	ID         int
-	Name       string
-	Email      string
+	LastName   string
+	FirstName  string
 	Department string
+	Status     string
 }
 
 // GetAllInstructors retrieves all instructors from the database
 func (scheduler *wmu_scheduler) GetAllInstructors() ([]Instructor, error) {
-	query := "SELECT id, name, email, department FROM instructors ORDER BY name"
+	query := `
+		SELECT i.id, i.last_name, i.first_name, d.name, i.status
+		FROM instructors i
+		JOIN departments d ON i.department_id = d.id
+		ORDER BY i.last_name, i.first_name
+	`
 	rows, err := scheduler.database.Query(query)
 	if err != nil {
 		return nil, err
@@ -456,7 +486,7 @@ func (scheduler *wmu_scheduler) GetAllInstructors() ([]Instructor, error) {
 	var instructors []Instructor
 	for rows.Next() {
 		var instructor Instructor
-		err := rows.Scan(&instructor.ID, &instructor.Name, &instructor.Email, &instructor.Department)
+		err := rows.Scan(&instructor.ID, &instructor.LastName, &instructor.FirstName, &instructor.Department, &instructor.Status)
 		if err != nil {
 			return nil, err
 		}
@@ -469,12 +499,11 @@ func (scheduler *wmu_scheduler) GetAllInstructors() ([]Instructor, error) {
 type Department struct {
 	ID   int
 	Name string
-	Code string
 }
 
 // GetAllDepartments retrieves all departments from the database
 func (scheduler *wmu_scheduler) GetAllDepartments() ([]Department, error) {
-	query := "SELECT id, name, code FROM departments ORDER BY name"
+	query := "SELECT id, name FROM departments ORDER BY name"
 	rows, err := scheduler.database.Query(query)
 	if err != nil {
 		return nil, err
@@ -484,7 +513,7 @@ func (scheduler *wmu_scheduler) GetAllDepartments() ([]Department, error) {
 	var departments []Department
 	for rows.Next() {
 		var department Department
-		err := rows.Scan(&department.ID, &department.Name, &department.Code)
+		err := rows.Scan(&department.ID, &department.Name)
 		if err != nil {
 			return nil, err
 		}
@@ -516,15 +545,13 @@ func (scheduler *wmu_scheduler) GetAllUsers() ([]User, error) {
 	return users, nil
 }
 
-type Prefix struct {
-	ID           int
-	Prefix       string
-	DepartmentID int
-}
-
 func (scheduler *wmu_scheduler) GetPrefix(prefix string) (*Prefix, error) {
 	var p Prefix
-	err := scheduler.database.QueryRow("SELECT id, prefix, department_id FROM prefixes WHERE prefix = ?", prefix).Scan(&p.ID, &p.Prefix, &p.DepartmentID)
+	err := scheduler.database.QueryRow(`
+		SELECT p.id, p.prefix, d.name
+		JOIN departments d ON p.department_id = d.id
+		FROM prefixes p WHERE p.id = ?`,
+		prefix).Scan(&p.ID, &p.Prefix, &p.Department)
 	if err == sql.ErrNoRows {
 		return nil, nil // Prefix not found
 	}
@@ -555,11 +582,32 @@ func (scheduler *wmu_scheduler) AddOrUpdateCourse(
 	comment string,
 ) error {
 	// Try to update first
-	result, err := scheduler.database.Exec(`
+	var result sql.Result
+	var err error
+	// Use nil for MySQL NULL if any of the IDs are -1
+	var instructorVal, timeslotVal, roomVal interface{}
+	if instructorID == -1 {
+		instructorVal = nil
+	} else {
+		instructorVal = instructorID
+	}
+	if timeslotID == -1 {
+		timeslotVal = nil
+	} else {
+		timeslotVal = timeslotID
+	}
+	if roomID == -1 {
+		roomVal = nil
+	} else {
+		roomVal = roomID
+	}
+
+	result, err = scheduler.database.Exec(`
 		UPDATE courses SET
 			section = ?, schedule_id = ?, course_number = ?, title = ?, min_credits = ?, max_credits = ?, min_contact = ?, max_contact = ?, cap = ?, approval = ?, lab = ?, instructor_id = ?, timeslot_id = ?, room_id = ?, mode = ?, status = ?, comment = ?
 		WHERE crn = ?
-	`, section, scheduleID, courseNumber, title, minCredits, maxCredits, minContactHours, maxContactHours, cap, appr, lab, instructorID, timeslotID, roomID, mode, status, comment, crn)
+	`, section, scheduleID, courseNumber, title, minCredits, maxCredits, minContactHours, maxContactHours, cap, appr, lab, instructorVal, timeslotVal, roomVal, mode, status, comment, crn)
+
 	if err != nil {
 		return err
 	}
@@ -570,12 +618,11 @@ func (scheduler *wmu_scheduler) AddOrUpdateCourse(
 	if rowsAffected > 0 {
 		return nil // Updated existing course
 	}
-	// Insert if not found
 	_, err = scheduler.database.Exec(`
 		INSERT INTO courses (
 			crn, section, schedule_id, course_number, title, min_credits, max_credits, min_contact, max_contact, cap, approval, lab, instructor_id, timeslot_id, room_id, mode, status, comment
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, crn, section, scheduleID, courseNumber, title, minCredits, maxCredits, minContactHours, maxContactHours, cap, appr, lab, instructorID, timeslotID, roomID, mode, status, comment)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, crn, section, scheduleID, courseNumber, title, minCredits, maxCredits, minContactHours, maxContactHours, cap, appr, lab, instructorVal, timeslotVal, roomVal, mode, status, comment)
 	return err
 }
 
@@ -584,17 +631,17 @@ func (scheduler *wmu_scheduler) findOrCreateTimeSlot(days, time string) (int, er
 	// Parse time (e.g., "1130-1245" to start and end times)
 	timeParts := strings.Split(time, "-")
 	if len(timeParts) != 2 {
-		return 0, fmt.Errorf("invalid time format: %s", time)
+		return -1, fmt.Errorf("invalid time format: %s", time)
 	}
 
 	startTime, err := parseTime(timeParts[0])
 	if err != nil {
-		return 0, err
+		return -1, err
 	}
 
 	endTime, err := parseTime(timeParts[1])
 	if err != nil {
-		return 0, err
+		return -1, err
 	}
 
 	var monday, tuesday, wednesday, thursday, friday bool
@@ -620,22 +667,31 @@ func (scheduler *wmu_scheduler) findOrCreateTimeSlot(days, time string) (int, er
 		return id, nil
 	}
 
+	// If not found, create new time slot
+	if err != sql.ErrNoRows {
+		return -1, fmt.Errorf("error checking for existing time slot: %v", err)
+	}
+
 	// Create new time slot
 	query = "INSERT INTO time_slots (M, T, W, R, F, start_time, end_time) VALUES (?, ?, ?, ?, ?, ?, ?)"
 	result, err := scheduler.database.Exec(query, monday, tuesday, wednesday, thursday, friday, startTime, endTime)
 	if err != nil {
-		return 0, err
+		return -1, fmt.Errorf("error creating time slot: %v", err)
 	}
 
 	newID, err := result.LastInsertId()
-	return int(newID), err
+	if err != nil {
+		return -1, fmt.Errorf("error getting new time slot ID: %v", err)
+	}
+
+	return int(newID), nil
 }
 
 func (scheduler *wmu_scheduler) findOrCreateRoom(location string) (int, error) {
 	// Parse room (e.g., "D0109 FLOYD" to room number and building)
 	parts := strings.Fields(location)
 	if len(parts) < 2 {
-		return 0, fmt.Errorf("invalid location format: %s", location)
+		return -1, fmt.Errorf("invalid location format: %s", location)
 	}
 
 	roomNumber := parts[0]
@@ -649,15 +705,24 @@ func (scheduler *wmu_scheduler) findOrCreateRoom(location string) (int, error) {
 		return id, nil
 	}
 
+	// If not found, create new room
+	if err != sql.ErrNoRows {
+		return -1, fmt.Errorf("error checking for existing room: %v", err)
+	}
+
 	// Create new room
 	query = "INSERT INTO rooms (room_number, building, capacity) VALUES (?, ?, ?)"
 	result, err := scheduler.database.Exec(query, roomNumber, building, 0) // Default capacity
 	if err != nil {
-		return 0, err
+		return -1, fmt.Errorf("error creating room: %v", err)
 	}
 
 	newID, err := result.LastInsertId()
-	return int(newID), err
+	if err != nil {
+		return -1, fmt.Errorf("error getting new room ID: %v", err)
+	}
+
+	return int(newID), nil
 }
 
 func (scheduler *wmu_scheduler) findOrCreateInstructor(name string) (int, error) {
@@ -669,13 +734,22 @@ func (scheduler *wmu_scheduler) findOrCreateInstructor(name string) (int, error)
 		return id, nil
 	}
 
+	// If not found, create new instructor
+	if err != sql.ErrNoRows {
+		return -1, fmt.Errorf("error checking for existing instructor: %v", err)
+	}
+
 	// Create new instructor
 	query = "INSERT INTO instructors (name, email, department) VALUES (?, ?, ?)"
 	result, err := scheduler.database.Exec(query, name, "", "Computer Science") // Default department
 	if err != nil {
-		return 0, err
+		return -1, fmt.Errorf("error creating instructor: %v", err)
 	}
 
 	newID, err := result.LastInsertId()
-	return int(newID), err
+	if err != nil {
+		return -1, fmt.Errorf("error getting new instructor ID: %v", err)
+	}
+
+	return int(newID), nil
 }

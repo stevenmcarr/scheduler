@@ -45,7 +45,7 @@
         {{end}}
         
         <form method="POST" action="/scheduler/signup">
-            <input type="hidden" name="_csrf" value="{{.CSRFToken}}">>
+            <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
             <label for="username">Username</label>
             <input type="text" id="username" name="username" value="{{if .Values}}{{.Values.username}}{{end}}" required>
 
