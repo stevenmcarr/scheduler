@@ -173,22 +173,101 @@
         .add-course-btn:hover {
             background-color: #218838;
         }
+        
+        /* Filter section styling */
+        .filter-section {
+            background-color: #f8f9fa;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .filter-row {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        .filter-group label {
+            font-size: 12px;
+            font-weight: bold;
+            color: #666;
+        }
+        
+        .filter-input {
+            padding: 6px 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+            width: 120px;
+        }
+        
+        .filter-input:focus {
+            outline: none;
+            border-color: #8B4513;
+            box-shadow: 0 0 0 2px rgba(139, 69, 19, 0.2);
+        }
+        
+        .clear-filters-btn {
+            background-color: #6c757d;
+            border-color: #6c757d;
+            padding: 6px 12px;
+            font-size: 14px;
+            margin-top: 18px;
+        }
+        
+        .clear-filters-btn:hover {
+            background-color: #545b62;
+        }
     </style>
 </head>
 <body>
     {{template "navbar" .}}
     <div class="content">
         <div class="page-header">
-            <h1>Course Management</h1>
+            <h1>Courses {{.ScheduleName}}</h1>
             <button class="add-course-btn">Add New Course</button>
         </div>
         
+        <!-- Filter Section -->
+        <div class="filter-section">
+            <div class="filter-row">
+                <div class="filter-group">
+                    <label for="filter-crn">CRN</label>
+                    <input type="text" id="filter-crn" class="filter-input" placeholder="Filter by CRN">
+                </div>
+                <div class="filter-group">
+                    <label for="filter-course-number">Course #</label>
+                    <input type="text" id="filter-course-number" class="filter-input" placeholder="Filter by Course #">
+                </div>
+                <div class="filter-group">
+                    <label for="filter-title">Title</label>
+                    <input type="text" id="filter-title" class="filter-input" placeholder="Filter by Title">
+                </div>
+                <div class="filter-group">
+                    <label for="filter-instructor">Instructor</label>
+                    <input type="text" id="filter-instructor" class="filter-input" placeholder="Filter by Instructor">
+                </div>
+                <button type="button" class="clear-filters-btn" onclick="clearAllFilters()">Clear Filters</button>
+            </div>
+        </div>
+        
         <div class="table-info">
-            Showing {{len .Courses}} course(s) - Scroll to see more
+            Showing <span id="visible-count">{{len .Courses}}</span> of <span id="total-count">{{len .Courses}}</span> course(s) - Scroll to see more
         </div>
         
         <div class="table-container">
-            <table>
+            <form id="courses-form" method="POST" action="/scheduler/courses">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                <table id="courses-table">
                 <thead>
                     <tr>
                         <th>CRN</th>
@@ -211,76 +290,71 @@
                 </thead>
                 <tbody>
                     {{range .Courses}}
-                    <tr>
+                    <tr data-course-id="{{.ID}}">
                         <td>
-                            <input type="number" class="crn-input" value="{{.CRN}}" 
-                                   onchange="updateCourse({{.ID}}, 'crn', this.value)">
+                            <input type="number" class="crn-input" value="{{.CRN}}" name="crn">
+                            <input type="hidden" name="schedule_id" value="{{$.ScheduleID}}">
                         </td>
                         <td>
-                            <input type="number" class="section-input" value="{{.Section}}" 
-                                   onchange="updateCourse({{.ID}}, 'section', this.value)">
+                            <input type="number" class="section-input" value="{{.Section}}" name="section">
                         </td>
                         <td>{{.Prefix}}</td>
                         <td>
-                            <input type="number" class="course-number-input" value="{{.CourseNumber}}" 
-                                   onchange="updateCourse({{.ID}}, 'course_number', this.value)">
+                            <input type="number" class="course-number-input" value="{{.CourseNumber}}" name="course_number">
                         </td>
                         <td>
-                            <input type="text" class="title-input" value="{{.Title}}" 
-                                   onchange="updateCourse({{.ID}}, 'title', this.value)">
+                            <input type="text" class="title-input" value="{{.Title}}" name="title">
                         </td>
                         <td>
-                            <input type="number" class="credits-input" value="{{.Credits}}" 
-                                   onchange="updateCourse({{.ID}}, 'credits', this.value)">
+                            <input type="number" class="credits-input" value="{{.Credits}}" name="credits">
                         </td>
                         <td>
-                            <input type="number" class="contact-input" value="{{.Contact}}" 
-                                   onchange="updateCourse({{.ID}}, 'contact', this.value)">
+                            <input type="number" class="contact-input" value="{{.Contact}}" name="contact">
                         </td>
                         <td>
-                            <input type="number" class="cap-input" value="{{.Cap}}" 
-                                   onchange="updateCourse({{.ID}}, 'cap', this.value)">
+                            <input type="number" class="cap-input" value="{{.Cap}}" name="cap">
                         </td>
                         <td>
-                            <input type="checkbox" {{if .Approval}}checked{{end}} 
-                                   onchange="updateCourse({{.ID}}, 'approval', this.checked)">
+                            <input type="checkbox" name="approval" {{if .Approval}}checked{{end}}>
                         </td>
                         <td>
-                            <input type="checkbox" {{if .Lab}}checked{{end}} 
-                                   onchange="updateCourse({{.ID}}, 'lab', this.checked)">
+                            <input type="checkbox" name="lab" {{if .Lab}}checked{{end}}>
                         </td>
                         <td>
-                            <select onchange="updateCourse({{.ID}}, 'instructor_id', this.value)">
+                            <select name="instructor_id">
                                 <option value="">Select Instructor</option>
+                                {{$course := .}}
                                 {{range $.Instructors}}
-                                <option value="{{.ID}}" {{if eq .ID $.CurrentCourse.InstructorID}}selected{{end}}>
+                                <option value="{{.ID}}" {{if eq .ID $course.InstructorID}}selected{{end}}>
                                     {{.FirstName}} {{.LastName}}
                                 </option>
                                 {{end}}
                             </select>
                         </td>
                         <td>
-                            <select onchange="updateCourse({{.ID}}, 'timeslot_id', this.value)">
+                            <select name="timeslot_id">
                                 <option value="">Select Time</option>
+                                {{$course := .}}
                                 {{range $.TimeSlots}}
-                                <option value="{{.ID}}" {{if eq .ID $.CurrentCourse.TimeslotID}}selected{{end}}>
-                                    {{.DayOfWeek}} {{.StartTime}}-{{.EndTime}}
+                                <option value="{{.ID}}" {{if eq .ID $course.TimeSlotID}}selected{{end}}>
+                                    {{.Days}} {{.StartTime}}-{{.EndTime}}
                                 </option>
                                 {{end}}
                             </select>
                         </td>
                         <td>
-                            <select onchange="updateCourse({{.ID}}, 'room_id', this.value)">
+                            <select name="room_id">
                                 <option value="">Select Room</option>
+                                {{$course := .}}
                                 {{range $.Rooms}}
-                                <option value="{{.ID}}" {{if eq .ID $.CurrentCourse.RoomID}}selected{{end}}>
+                                <option value="{{.ID}}" {{if eq .ID $course.RoomID}}selected{{end}}>
                                     {{.Building}} {{.RoomNumber}}
                                 </option>
                                 {{end}}
                             </select>
                         </td>
                         <td>
-                            <select onchange="updateCourse({{.ID}}, 'mode', this.value)">
+                            <select name="mode">
                                 <option value="IP" {{if eq .Mode "IP"}}selected{{end}}>IP</option>
                                 <option value="FSO" {{if eq .Mode "FSO"}}selected{{end}}>FSO</option>
                                 <option value="PSO" {{if eq .Mode "PSO"}}selected{{end}}>PSO</option>
@@ -288,7 +362,7 @@
                             </select>
                         </td>
                         <td>
-                            <select onchange="updateCourse({{.ID}}, 'status', this.value)">
+                            <select name="status">
                                 <option value="Scheduled" {{if eq .Status "Scheduled"}}selected{{end}}>Scheduled</option>
                                 <option value="Added" {{if eq .Status "Added"}}selected{{end}}>Added</option>
                                 <option value="Removed" {{if eq .Status "Removed"}}selected{{end}}>Removed</option>
@@ -297,50 +371,221 @@
                             </select>
                         </td>
                         <td>
-                            <input type="text" value="{{.Comment}}" 
-                                   onchange="updateCourse({{.ID}}, 'comment', this.value)"
-                                   placeholder="Add comment...">
+                            <input type="text" value="{{.Comment}}" name="comment" placeholder="Add comment...">
                         </td>
                     </tr>
                     {{end}}
                 </tbody>
             </table>
+            </form>
         </div>
         
         <div class="button-row">
-            <button type="button">Export Courses</button>
-            <button type="button">Import Courses</button>
-            <button type="button">Generate Report</button>
-            <button type="button">Save Changes</button>
+            <button type="button" onclick="saveAllChanges()">Save Changes</button>
         </div>
     </div>
     
     <script>
-        function updateCourse(courseId, field, value) {
-            // This function will be used to update course data via AJAX
-            console.log('Updating course', courseId, 'field', field, 'to', value);
+        // Filter functionality
+        function initializeFilters() {
+            const filterInputs = [
+                'filter-crn',
+                'filter-course-number', 
+                'filter-title',
+                'filter-instructor'
+            ];
             
-            // TODO: Implement AJAX call to update course in database
-            // Example:
-            // fetch('/api/courses/' + courseId, {
-            //     method: 'PUT',
-            //     headers: {
-            //         'Content-Type': 'application/json',
-            //         'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
-            //     },
-            //     body: JSON.stringify({
-            //         field: field,
-            //         value: value
-            //     })
-            // })
-            // .then(response => response.json())
-            // .then(data => {
-            //     if (data.success) {
-            //         console.log('Course updated successfully');
-            //     } else {
-            //         console.error('Error updating course:', data.error);
-            //     }
-            // });
+            filterInputs.forEach(filterId => {
+                const input = document.getElementById(filterId);
+                if (input) {
+                    input.addEventListener('input', filterTable);
+                }
+            });
+            
+            // Set initial count
+            updateVisibleCount();
+        }
+        
+        function filterTable() {
+            const table = document.getElementById('courses-table');
+            const rows = table.getElementsByTagName('tbody')[0].getElementsByTagName('tr');
+            
+            const filters = {
+                crn: document.getElementById('filter-crn').value.toLowerCase().trim(),
+                courseNumber: document.getElementById('filter-course-number').value.toLowerCase().trim(),
+                title: document.getElementById('filter-title').value.toLowerCase().trim(),
+                instructor: document.getElementById('filter-instructor').value.toLowerCase().trim()
+            };
+            
+            let visibleCount = 0;
+            
+            for (let i = 0; i < rows.length; i++) {
+                const row = rows[i];
+                const cells = row.getElementsByTagName('td');
+                
+                if (cells.length === 0) continue; // Skip if no cells
+                
+                // Extract text content from each relevant column
+                const crn = cells[0].querySelector('input') ? cells[0].querySelector('input').value.toLowerCase() : '';
+                const courseNumber = cells[3].querySelector('input') ? cells[3].querySelector('input').value.toLowerCase() : '';
+                const title = cells[4].querySelector('input') ? cells[4].querySelector('input').value.toLowerCase() : '';
+                
+                // For instructor, get the selected option text
+                let instructor = '';
+                const instructorSelect = cells[10].querySelector('select');
+                if (instructorSelect && instructorSelect.selectedIndex > 0) {
+                    instructor = instructorSelect.options[instructorSelect.selectedIndex].text.toLowerCase();
+                }
+                
+                // Check if row matches all active filters
+                const matches = (
+                    (!filters.crn || crn.includes(filters.crn)) &&
+                    (!filters.courseNumber || courseNumber.includes(filters.courseNumber)) &&
+                    (!filters.title || title.includes(filters.title)) &&
+                    (!filters.instructor || instructor.includes(filters.instructor))
+                );
+                
+                if (matches) {
+                    row.style.display = '';
+                    visibleCount++;
+                } else {
+                    row.style.display = 'none';
+                }
+            }
+            
+            updateVisibleCount(visibleCount);
+        }
+        
+        function updateVisibleCount(visible) {
+            const visibleSpan = document.getElementById('visible-count');
+            const totalSpan = document.getElementById('total-count');
+            
+            if (visible !== undefined) {
+                visibleSpan.textContent = visible;
+            } else {
+                // Count visible rows if not provided
+                const table = document.getElementById('courses-table');
+                const rows = table.getElementsByTagName('tbody')[0].getElementsByTagName('tr');
+                let count = 0;
+                for (let i = 0; i < rows.length; i++) {
+                    if (rows[i].style.display !== 'none') {
+                        count++;
+                    }
+                }
+                visibleSpan.textContent = count;
+            }
+        }
+        
+        function clearAllFilters() {
+            document.getElementById('filter-crn').value = '';
+            document.getElementById('filter-course-number').value = '';
+            document.getElementById('filter-title').value = '';
+            document.getElementById('filter-instructor').value = '';
+            
+            // Show all rows
+            const table = document.getElementById('courses-table');
+            const rows = table.getElementsByTagName('tbody')[0].getElementsByTagName('tr');
+            
+            for (let i = 0; i < rows.length; i++) {
+                rows[i].style.display = '';
+            }
+            
+            updateVisibleCount();
+        }
+        
+        // Initialize filters when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeFilters();
+        });
+        
+        // Form submission functionality
+        function saveAllChanges() {
+            const form = document.getElementById('courses-form');
+            const formData = new FormData();
+            
+            // Add CSRF token
+            const csrfToken = document.querySelector('input[name="csrf_token"]').value;
+            formData.append('csrf_token', csrfToken);
+            
+            // Collect all course data from table rows
+            const rows = document.querySelectorAll('#courses-table tbody tr');
+            const courses = [];
+            
+            rows.forEach((row, index) => {
+                // Skip hidden rows (filtered out)
+                if (row.style.display === 'none') return;
+                
+                const courseId = row.getAttribute('data-course-id');
+                
+                const courseData = {
+                    id: courseId,
+                    crn: row.querySelector('input[name="crn"]').value,
+                    section: row.querySelector('input[name="section"]').value,
+                    schedule_id: row.querySelector('input[name="schedule_id"]').value,
+                    course_number: row.querySelector('input[name="course_number"]').value,
+                    title: row.querySelector('input[name="title"]').value,
+                    credits: row.querySelector('input[name="credits"]').value,
+                    contact: row.querySelector('input[name="contact"]').value,
+                    cap: row.querySelector('input[name="cap"]').value,
+                    approval: row.querySelector('input[name="approval"]').checked ? 1 : 0,
+                    lab: row.querySelector('input[name="lab"]').checked ? 1 : 0,
+                    instructor_id: row.querySelector('select[name="instructor_id"]').value || null,
+                    timeslot_id: row.querySelector('select[name="timeslot_id"]').value || null,
+                    room_id: row.querySelector('select[name="room_id"]').value || null,
+                    mode: row.querySelector('select[name="mode"]').value,
+                    status: row.querySelector('select[name="status"]').value,
+                    comment: row.querySelector('input[name="comment"]').value
+                };
+                
+                courses.push(courseData);
+            });
+            
+            
+            // Add courses data as JSON
+            formData.append('courses', JSON.stringify(courses));
+            
+            // Show loading state
+            const saveButton = event.target;
+            const originalText = saveButton.textContent;
+            saveButton.textContent = 'Saving...';
+            saveButton.disabled = true;
+            
+            // Submit the form
+            fetch('/scheduler/courses', {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-Token': csrfToken
+                },
+                body: formData
+            })
+            .then(response => {
+                
+                if (response.ok) {
+                    return response.text();
+                } else {
+                    // Get the error response text
+                    return response.text().then(errorText => {
+                        console.error('Server error response:', errorText);
+                        throw new Error(`Server returned ${response.status}: ${errorText}`);
+                    });
+                }
+            })
+            .then(data => {
+                // Show success message
+                alert('Changes saved successfully!');
+                
+                // Reset button state
+                saveButton.textContent = originalText;
+                saveButton.disabled = false;
+            })
+            .catch(error => {
+                console.error('Error saving changes:', error);
+                alert('Error saving changes: ' + error.message);
+                
+                // Reset button state
+                saveButton.textContent = originalText;
+                saveButton.disabled = false;
+            });
         }
     </script>
 </body>

@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 
+	"encoding/json"
+
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	csrf "github.com/utrack/gin-csrf"
@@ -221,10 +223,19 @@ func (scheduler *wmu_scheduler) RenderCoursesPageGin(c *gin.Context) {
 	}
 
 	// Fetch courses from the database or service
-	courses, err := scheduler.GetAllCourses(id)
+	courses, err := scheduler.GetCoursesForSchedule(id)
 	if err != nil {
 		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
 			"Error": "Error fetching courses: " + err.Error(),
+			"User":  user,
+		})
+		return
+	}
+
+	scheduleName, err := scheduler.GetScheduleName(id)
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
+			"Error": "Error fetching schedule name: " + err.Error(),
 			"User":  user,
 		})
 		return
@@ -259,15 +270,135 @@ func (scheduler *wmu_scheduler) RenderCoursesPageGin(c *gin.Context) {
 	}
 
 	data := gin.H{
-		"User":        user,
-		"Courses":     courses,
-		"Instructors": instructors,
-		"Rooms":       rooms,
-		"TimeSlots":   timeSlots,
-		"CSRFToken":   csrf.GetToken(c),
+		"User":         user,
+		"ScheduleName": scheduleName,
+		"Courses":      courses,
+		"Instructors":  instructors,
+		"Rooms":        rooms,
+		"TimeSlots":    timeSlots,
+		"CSRFToken":    csrf.GetToken(c),
 	}
 
 	c.HTML(http.StatusOK, "courses", data)
+}
+
+// SaveCoursesGin handles POST requests to save course changes
+func (scheduler *wmu_scheduler) SaveCoursesGin(c *gin.Context) {
+
+	_, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		log.Printf("Authentication error: %v", err)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
+
+	// Parse the courses JSON data from the form
+	coursesJSON := c.PostForm("courses")
+	if coursesJSON == "" {
+		log.Printf("No courses data provided in form")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No courses data provided"})
+		return
+	}
+
+	// Parse JSON into course data structures
+	var courses []map[string]interface{}
+	err = json.Unmarshal([]byte(coursesJSON), &courses)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid courses data format"})
+		return
+	}
+
+	// Process each course update
+	var errors []string
+	successCount := 0
+
+	for _, courseData := range courses {
+		// Extract course ID
+		courseID, ok := courseData["id"].(string)
+		if !ok {
+			errors = append(errors, "Invalid course ID format")
+			continue
+		}
+
+		id, err := strconv.Atoi(courseID)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("Invalid course ID: %s", courseID))
+			continue
+		}
+
+		// Extract and convert course fields with safe type assertions
+		crn := getIntFromInterface(courseData["crn"])
+		section := getIntFromInterface(courseData["section"])
+		scheduleID := getIntFromInterface(courseData["schedule_id"])
+		courseNumber := getIntFromInterface(courseData["course_number"])
+		title := getStringFromInterface(courseData["title"])
+
+		// Handle credits as min/max if it contains a dash
+		var minCredits, maxCredits int
+		creditsStr := getStringFromInterface(courseData["credits"])
+		if strings.Contains(creditsStr, "-") {
+			parts := strings.SplitN(creditsStr, "-", 2)
+			minCredits, _ = strconv.Atoi(strings.TrimSpace(parts[0]))
+			maxCredits, _ = strconv.Atoi(strings.TrimSpace(parts[1]))
+		} else {
+			minCredits, _ = strconv.Atoi(strings.TrimSpace(creditsStr))
+			maxCredits = minCredits
+		}
+
+		// Handle contact as min/max if it contains a dash
+		var minContact, maxContact int
+		contactStr := getStringFromInterface(courseData["contact"])
+		if strings.Contains(contactStr, "-") {
+			parts := strings.SplitN(contactStr, "-", 2)
+			minContact, _ = strconv.Atoi(strings.TrimSpace(parts[0]))
+			maxContact, _ = strconv.Atoi(strings.TrimSpace(parts[1]))
+		} else {
+			minContact, _ = strconv.Atoi(strings.TrimSpace(contactStr))
+			maxContact = minContact
+		}
+		cap := getIntFromInterface(courseData["cap"])
+		approval := getIntFromInterface(courseData["approval"])
+		lab := getIntFromInterface(courseData["lab"])
+		mode := getStringFromInterface(courseData["mode"])
+		status := getStringFromInterface(courseData["status"])
+		comment := getStringFromInterface(courseData["comment"])
+
+		// Handle nullable foreign keys
+		var instructorID = -1
+		var timeslotID = -1
+		var roomID = -1
+
+		if instructorIDStr := getStringFromInterface(courseData["instructor_id"]); instructorIDStr != "" && instructorIDStr != "<nil>" && instructorIDStr != "null" {
+			instructorID = getIntFromInterface(courseData["instructor_id"])
+		}
+
+		if timeslotIDStr := getStringFromInterface(courseData["timeslot_id"]); timeslotIDStr != "" && timeslotIDStr != "<nil>" && timeslotIDStr != "null" {
+			timeslotID = getIntFromInterface(courseData["timeslot_id"])
+		}
+
+		if roomIDStr := getStringFromInterface(courseData["room_id"]); roomIDStr != "" && roomIDStr != "<nil>" && roomIDStr != "null" {
+			roomID = getIntFromInterface(courseData["room_id"])
+		}
+
+		err = scheduler.AddOrUpdateCourse(crn, section, scheduleID, courseNumber, title, minCredits, maxCredits, minContact, maxContact, cap, approval, lab, instructorID, timeslotID, roomID, mode, status, comment)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("Failed to update course ID %d: %v", id, err))
+			continue
+		}
+		successCount++
+	}
+
+	// Respond with summary
+	if len(errors) > 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"message": fmt.Sprintf("%d courses updated, %d errors", successCount, len(errors)),
+			"errors":  errors,
+		})
+	} else {
+		c.JSON(http.StatusOK, gin.H{
+			"message": fmt.Sprintf("All %d courses updated successfully", successCount),
+		})
+	}
 }
 
 func (scheduler *wmu_scheduler) RenderHomePageGin(c *gin.Context) {
@@ -912,5 +1043,139 @@ func (scheduler *wmu_scheduler) ImportExcelHandler(c *gin.Context) {
 		return
 	}
 
-	c.Redirect(http.StatusFound, fmt.Sprintf("/scheduler/courses?schedule_id=%d", schedule.ID))
+	c.JSON(http.StatusOK, gin.H{
+		"message":     "Excel schedule imported successfully!",
+		"schedule_id": schedule.ID,
+		"redirect":    fmt.Sprintf("/scheduler/courses?schedule_id=%d", schedule.ID),
+	})
+}
+
+// UpdateCourseGin handles AJAX PUT requests to update a course field
+func (scheduler *wmu_scheduler) UpdateCourseGin(c *gin.Context) {
+	var req struct {
+		CourseID int    `json:"course_id"`
+		Field    string `json:"field"`
+		Value    string `json:"value"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+
+	// Validate field name (add allowed fields as needed)
+	allowedFields := map[string]bool{
+		"crn":           true,
+		"section":       true,
+		"course_number": true,
+		"title":         true,
+		"credits":       true,
+		"contacts":      true,
+		"cap":           true,
+		"approval":      true,
+		"lab":           true,
+		"instructor_id": true,
+		"room_id":       true,
+		"time_slot_id":  true,
+		"mode":          true,
+		"status":        true,
+		"comment":       true,
+		// Add other fields as needed
+	}
+
+	if !allowedFields[req.Field] {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid field"})
+		return
+	}
+
+	if req.Field == "credits" {
+		if strings.Contains(req.Value, "-") {
+			parts := strings.Split(req.Value, "-")
+			if len(parts) == 2 {
+				minCredits := strings.TrimSpace(parts[0])
+				maxCredits := strings.TrimSpace(parts[1])
+				if err := scheduler.UpdateCourseField(req.CourseID, "min_credits", minCredits); err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+					return
+				}
+				if err := scheduler.UpdateCourseField(req.CourseID, "max_credits", maxCredits); err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+					return
+				}
+				c.JSON(http.StatusOK, gin.H{"message": "Course credits updated successfully"})
+				return
+			}
+		}
+	}
+
+	if req.Field == "contact" {
+		if strings.Contains(req.Value, "-") {
+			parts := strings.Split(req.Value, "-")
+			if len(parts) == 2 {
+				minContact := strings.TrimSpace(parts[0])
+				maxContact := strings.TrimSpace(parts[1])
+				if err := scheduler.UpdateCourseField(req.CourseID, "min_contact", minContact); err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+					return
+				}
+				if err := scheduler.UpdateCourseField(req.CourseID, "max_contact", maxContact); err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+					return
+				}
+				c.JSON(http.StatusOK, gin.H{"message": "Course contact hours updated successfully"})
+				return
+			}
+		}
+	}
+
+	// Update the course in the database
+	err := scheduler.UpdateCourseField(req.CourseID, req.Field, req.Value)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Course updated successfully"})
+}
+
+// Helper functions for safe type conversion from interface{}
+func getStringFromInterface(value interface{}) string {
+	if value == nil {
+		return ""
+	}
+	if str, ok := value.(string); ok {
+		return str
+	}
+	// Fallback to string representation
+	return fmt.Sprintf("%v", value)
+}
+
+func getIntFromInterface(value interface{}) int {
+	if value == nil {
+		return 0
+	}
+
+	// Try direct int conversion
+	if intVal, ok := value.(int); ok {
+		return intVal
+	}
+
+	// Try float64 (common from JSON)
+	if floatVal, ok := value.(float64); ok {
+		return int(floatVal)
+	}
+
+	// Try string conversion
+	if strVal, ok := value.(string); ok {
+		if intVal, err := strconv.Atoi(strVal); err == nil {
+			return intVal
+		}
+	}
+
+	// Fallback: convert to string then to int
+	strVal := fmt.Sprintf("%.0f", value)
+	if intVal, err := strconv.Atoi(strVal); err == nil {
+		return intVal
+	}
+
+	return 0
 }

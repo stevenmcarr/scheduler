@@ -116,7 +116,7 @@
                     <select id="prefix" name="prefix" required>
                         <option value="">-- Select Prefix --</option>
                         {{range .Prefixes}}
-                            <option value="{{.}}">{{.}}</option>
+                            <option value="{{.ID}}">{{.Prefix}} {{.Department}}</option>
                         {{end}}
                     </select>
                 </div>
@@ -180,6 +180,13 @@
                     } else {
                         resultDiv.innerHTML = '<div class="success">' + data.message + '</div>';
                         document.getElementById('importForm').reset();
+                        
+                        // Redirect to courses page after showing success message
+                        if (data.redirect) {
+                            setTimeout(() => {
+                                window.location.href = data.redirect;
+                            }, 2000); // Wait 2 seconds before redirecting
+                        }
                     }
                 }, 1000);
             })

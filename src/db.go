@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -178,8 +179,12 @@ func (scheduler *wmu_scheduler) AddOrGetSchedule(term string, year int, prefix s
 		return nil, err
 	}
 
+	prefixID, err = strconv.Atoi(prefix)
+	if err != nil {
+		return nil, fmt.Errorf("invalid prefix id: %v", err)
+	}
 	// Get department_id and prefix_id from prefixes table/
-	err = scheduler.database.QueryRow("SELECT id, department_id FROM prefixes WHERE prefix = ?", prefix).Scan(&prefixID, &departmentID)
+	err = scheduler.database.QueryRow("SELECT id, department_id FROM prefixes WHERE id = ?", prefixID).Scan(&prefixID, &departmentID)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("prefix '%s' not found", prefix)
 	}
@@ -216,8 +221,41 @@ func (scheduler *wmu_scheduler) AddOrGetSchedule(term string, year int, prefix s
 }
 
 func (scheduler *wmu_scheduler) DeleteSchedule(id int) error {
-	_, err := scheduler.database.Exec("DELETE FROM schedules WHERE id = ?", id)
-	return err
+	// Begin a transaction to ensure both operations succeed or fail together
+	tx, err := scheduler.database.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %v", err)
+	}
+	defer tx.Rollback() // This will be ignored if the transaction is committed
+
+	// First, delete all courses associated with this schedule
+	_, err = tx.Exec("DELETE FROM courses WHERE schedule_id = ?", id)
+	if err != nil {
+		return fmt.Errorf("failed to delete courses for schedule %d: %v", id, err)
+	}
+
+	// Then delete the schedule itself
+	result, err := tx.Exec("DELETE FROM schedules WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("failed to delete schedule %d: %v", id, err)
+	}
+
+	// Check if the schedule actually existed
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %v", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("schedule with id %d not found", id)
+	}
+
+	// Commit the transaction
+	err = tx.Commit()
+	if err != nil {
+		return fmt.Errorf("failed to commit transaction: %v", err)
+	}
+
+	return nil
 }
 
 func (scheduler *wmu_scheduler) GetSchedule(term string, year int, prefix string) (*Schedule, error) {
@@ -319,40 +357,34 @@ type Course struct {
 	ID           int
 	CRN          int
 	Section      string
+	ScheduleID   int
 	Prefix       string
 	CourseNumber string
 	Title        string
 	Credits      int
 	Contact      string
 	Cap          int
-	Appr         int
-	Lab          int
-	Instructor   string
-	Time         string
-	Room         string
+	Approval     bool // Changed from Appr to Approval
+	Lab          bool
+	InstructorID int
+	TimeSlotID   int // New field for timeslot ID
+	RoomID       int // New field for room ID
 	Mode         string
 	Status       string
 	Comment      string // New field for comments
 }
 
-func (scheduler *wmu_scheduler) GetAllCourses(schedule_id int) ([]Course, error) {
+func (scheduler *wmu_scheduler) GetCoursesForSchedule(schedule_id int) ([]Course, error) {
 	rows, err := scheduler.database.Query(`
-		SELECT c.id, c.crn, c.section, p.prefix, c.course_number, c.title, c.min_credits, c.max_contact, c.cap, c.approval, c.lab, 
-		       COALESCE(CONCAT(i.first_name, ' ', i.last_name), '') as instructor_name, 
-		       COALESCE(CONCAT(t.start_time, '-', t.end_time, ' ', 
-		                      CASE WHEN t.M THEN 'M' ELSE '' END,
-		                      CASE WHEN t.T THEN 'T' ELSE '' END,
-		                      CASE WHEN t.W THEN 'W' ELSE '' END,
-		                      CASE WHEN t.R THEN 'R' ELSE '' END,
-		                      CASE WHEN t.F THEN 'F' ELSE '' END), '') as time_str, 
-		       COALESCE(CONCAT(r.building, ' ', r.room_number), '') as room_str, 
+		SELECT c.id, c.crn, c.section, p.prefix, c.course_number, c.title, c.min_credits, c.max_contact, c.cap, 
+		       c.approval = 1 as approval, c.lab = 1 as lab,
+			   COALESCE(c.instructor_id, -1) as instructor_id,
+			   COALESCE(c.timeslot_id, -1) as timeslot_id,
+			   COALESCE(c.room_id, -1) as room_id,
 		       c.mode, c.status, c.comment
 		FROM courses c
 		JOIN schedules s ON c.schedule_id = s.id
 		JOIN prefixes p ON s.prefix_id = p.id
-		LEFT JOIN instructors i ON c.instructor_id = i.id
-		LEFT JOIN time_slots t ON c.timeslot_id = t.id
-		LEFT JOIN rooms r ON c.room_id = r.id
 		WHERE c.schedule_id = ?
 		ORDER BY c.course_number, c.crn, c.section
 	`, schedule_id)
@@ -364,7 +396,7 @@ func (scheduler *wmu_scheduler) GetAllCourses(schedule_id int) ([]Course, error)
 	var courses []Course
 	for rows.Next() {
 		var course Course
-		if err := rows.Scan(&course.ID, &course.CRN, &course.Section, &course.Prefix, &course.CourseNumber, &course.Title, &course.Credits, &course.Contact, &course.Cap, &course.Appr, &course.Lab, &course.Instructor, &course.Time, &course.Room, &course.Mode, &course.Status, &course.Comment); err != nil {
+		if err := rows.Scan(&course.ID, &course.CRN, &course.Section, &course.ScheduleID, &course.Prefix, &course.CourseNumber, &course.Title, &course.Credits, &course.Contact, &course.Cap, &course.Approval, &course.Lab, &course.InstructorID, &course.TimeSlotID, &course.RoomID, &course.Mode, &course.Status, &course.Comment); err != nil {
 			return nil, err
 		}
 		courses = append(courses, course)
@@ -407,7 +439,7 @@ type Prefix struct {
 
 func (scheduler *wmu_scheduler) GetAllPrefixes() ([]Prefix, error) {
 	rows, err := scheduler.database.Query(`
-		SELECT p.prefix, d.name
+		SELECT p.id, p.prefix, d.name
 		FROM prefixes p
 		JOIN departments d ON p.department_id = d.id
 		ORDER BY p.prefix
@@ -420,7 +452,7 @@ func (scheduler *wmu_scheduler) GetAllPrefixes() ([]Prefix, error) {
 	var prefixes []Prefix
 	for rows.Next() {
 		var prefix Prefix
-		if err := rows.Scan(&prefix.Prefix, &prefix.Department); err != nil {
+		if err := rows.Scan(&prefix.ID, &prefix.Prefix, &prefix.Department); err != nil {
 			return nil, err
 		}
 		prefixes = append(prefixes, prefix)
@@ -432,6 +464,7 @@ type TimeSlot struct {
 	ID        int
 	StartTime string
 	EndTime   string
+	Days      string
 	Monday    bool
 	Tuesday   bool
 	Wednesday bool
@@ -454,6 +487,23 @@ func (scheduler *wmu_scheduler) GetAllTimeSlots() ([]TimeSlot, error) {
 		err := rows.Scan(&timeslot.ID, &timeslot.StartTime, &timeslot.EndTime, &timeslot.Monday, &timeslot.Tuesday, &timeslot.Wednesday, &timeslot.Thursday, &timeslot.Friday)
 		if err != nil {
 			return nil, err
+		}
+		timeslot.Days = "" // Initialize Days field
+		// Set Days field based on boolean values
+		if timeslot.Monday {
+			timeslot.Days += "M"
+		}
+		if timeslot.Tuesday {
+			timeslot.Days += "T"
+		}
+		if timeslot.Wednesday {
+			timeslot.Days += "W"
+		}
+		if timeslot.Thursday {
+			timeslot.Days += "R"
+		}
+		if timeslot.Friday {
+			timeslot.Days += "F"
 		}
 		timeslots = append(timeslots, timeslot)
 	}
@@ -611,13 +661,29 @@ func (scheduler *wmu_scheduler) AddOrUpdateCourse(
 	if err != nil {
 		return err
 	}
+
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		return err
 	}
+
 	if rowsAffected > 0 {
 		return nil // Updated existing course
 	}
+
+	// Check if the CRN exists but no update was needed (all values were the same)
+	var existingCRN int
+	err = scheduler.database.QueryRow("SELECT crn FROM courses WHERE crn = ?", crn).Scan(&existingCRN)
+	if err == nil {
+		// CRN exists but no update was needed (all values were already the same)
+		return nil
+	}
+	if err != sql.ErrNoRows {
+		// Some other error occurred during the check
+		return fmt.Errorf("error checking for existing CRN: %v", err)
+	}
+
+	// CRN doesn't exist, so insert new course
 	_, err = scheduler.database.Exec(`
 		INSERT INTO courses (
 			crn, section, schedule_id, course_number, title, min_credits, max_credits, min_contact, max_contact, cap, approval, lab, instructor_id, timeslot_id, room_id, mode, status, comment
@@ -752,4 +818,50 @@ func (scheduler *wmu_scheduler) findOrCreateInstructor(name string) (int, error)
 	}
 
 	return int(newID), nil
+}
+
+// UpdateCourseField updates a single field for a course identified by CourseID.
+func (scheduler *wmu_scheduler) UpdateCourseField(courseID int, field string, value interface{}) error {
+	// Only allow updates to known fields to prevent SQL injection
+	allowedFields := map[string]bool{
+		"crn":           true,
+		"section":       true,
+		"prefix":        true,
+		"course_number": true,
+		"title":         true,
+		"min_credits":   true,
+		"max_credits":   true,
+		"min_contact":   true,
+		"max_contact":   true,
+		"cap":           true,
+		"approval":      true,
+		"lab":           true,
+		"instructor_id": true,
+		"timeslot_id":   true,
+		"room_id":       true,
+		"mode":          true,
+		"status":        true,
+		"comment":       true,
+	}
+
+	if !allowedFields[field] {
+		return fmt.Errorf("field '%s' cannot be updated", field)
+	}
+
+	query := fmt.Sprintf("UPDATE courses SET %s = ? WHERE id = ?", field)
+	_, err := scheduler.database.Exec(query, value, courseID)
+	return err
+}
+
+func (scheduler *wmu_scheduler) GetScheduleName(scheduleID int) (string, error) {
+	var term string
+	var year int
+	err := scheduler.database.QueryRow("SELECT term, year FROM schedules WHERE id = ?", scheduleID).Scan(&term, &year)
+	if err == sql.ErrNoRows {
+		return "", nil // Schedule not found
+	}
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s %d", term, year), nil
 }

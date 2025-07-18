@@ -25,9 +25,7 @@ func (scheduler *wmu_scheduler) router() *gin.Engine {
 
 	// Load HTML templates - try multiple paths
 	templatePaths := []string{
-		"templates/*",     // when run from src directory
 		"src/templates/*", // when run from root directory
-		"*/templates/*",   // fallback pattern
 	}
 
 	var templatePattern string
@@ -125,6 +123,9 @@ func (scheduler *wmu_scheduler) router() *gin.Engine {
 	// Navigation routes
 	r.GET("/scheduler/courses", func(c *gin.Context) {
 		scheduler.RenderCoursesPageGin(c)
+	})
+	r.POST("/scheduler/courses", func(c *gin.Context) {
+		scheduler.SaveCoursesGin(c)
 	})
 	r.GET("/scheduler/rooms", func(c *gin.Context) {
 		scheduler.RenderRoomsPageGin(c)
