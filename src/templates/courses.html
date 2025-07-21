@@ -234,7 +234,7 @@
     <div class="content">
         <div class="page-header">
             <h1>Courses {{.ScheduleName}}</h1>
-            <button class="add-course-btn">Add New Course</button>
+            <button class="add-course-btn" type="button" onclick="window.location.href='/scheduler/add_course'">Add New Course</button>
         </div>
         
         <!-- Filter Section -->
@@ -293,7 +293,6 @@
                     <tr data-course-id="{{.ID}}">
                         <td>
                             <input type="number" class="crn-input" value="{{.CRN}}" name="crn">
-                            <input type="hidden" name="schedule_id" value="{{$.ScheduleID}}">
                         </td>
                         <td>
                             <input type="number" class="section-input" value="{{.Section}}" name="section">
@@ -521,7 +520,6 @@
                     id: courseId,
                     crn: row.querySelector('input[name="crn"]').value,
                     section: row.querySelector('input[name="section"]').value,
-                    schedule_id: row.querySelector('input[name="schedule_id"]').value,
                     course_number: row.querySelector('input[name="course_number"]').value,
                     title: row.querySelector('input[name="title"]').value,
                     credits: row.querySelector('input[name="credits"]').value,

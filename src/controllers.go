@@ -206,11 +206,21 @@ func (scheduler *wmu_scheduler) RenderCoursesPageGin(c *gin.Context) {
 	// Get schedule_id from the URL query parameters
 	scheduleID := c.Query("schedule_id")
 	if scheduleID == "" {
-		c.HTML(http.StatusBadRequest, "error.html", gin.H{
-			"Error": "Missing schedule_id parameter",
-			"User":  user,
-		})
-		return
+		scheduleID, err = scheduler.getCurrentSchedule(c)
+		if err != nil {
+			c.HTML(http.StatusBadRequest, "error.html", gin.H{
+				"Error": "No schedule currently selected. Please select a schedule.",
+				"User":  user,
+			})
+			return
+		}
+	} else {
+		_, err = scheduler.getCurrentSchedule(c)
+		if err != nil {
+			session := sessions.Default(c)
+			session.Set("schedule_id", scheduleID)
+			session.Save()
+		}
 	}
 
 	id, err := strconv.Atoi(scheduleID)
@@ -277,6 +287,8 @@ func (scheduler *wmu_scheduler) RenderCoursesPageGin(c *gin.Context) {
 		"Rooms":        rooms,
 		"TimeSlots":    timeSlots,
 		"CSRFToken":    csrf.GetToken(c),
+		"Success":      c.Query("success"),
+		"Error":        c.Query("error"),
 	}
 
 	c.HTML(http.StatusOK, "courses", data)
@@ -329,7 +341,6 @@ func (scheduler *wmu_scheduler) SaveCoursesGin(c *gin.Context) {
 		// Extract and convert course fields with safe type assertions
 		crn := getIntFromInterface(courseData["crn"])
 		section := getIntFromInterface(courseData["section"])
-		scheduleID := getIntFromInterface(courseData["schedule_id"])
 		courseNumber := getIntFromInterface(courseData["course_number"])
 		title := getStringFromInterface(courseData["title"])
 
@@ -380,7 +391,7 @@ func (scheduler *wmu_scheduler) SaveCoursesGin(c *gin.Context) {
 			roomID = getIntFromInterface(courseData["room_id"])
 		}
 
-		err = scheduler.AddOrUpdateCourse(crn, section, scheduleID, courseNumber, title, minCredits, maxCredits, minContact, maxContact, cap, approval, lab, instructorID, timeslotID, roomID, mode, status, comment)
+		err = scheduler.AddOrUpdateCourse(crn, section, courseNumber, title, minCredits, maxCredits, minContact, maxContact, cap, approval, lab, instructorID, timeslotID, roomID, mode, status, comment, 0)
 		if err != nil {
 			errors = append(errors, fmt.Sprintf("Failed to update course ID %d: %v", id, err))
 			continue
@@ -398,6 +409,172 @@ func (scheduler *wmu_scheduler) SaveCoursesGin(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"message": fmt.Sprintf("All %d courses updated successfully", successCount),
 		})
+	}
+}
+
+func (scheduler *wmu_scheduler) RenderAddCoursePageGin(c *gin.Context) {
+	user, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Get schedule_id from session
+	scheduleID, err := scheduler.getCurrentSchedule(c)
+	if err != nil {
+		c.HTML(http.StatusBadRequest, "error.html", gin.H{
+			"Error": "No schedule currently selected. Please select a schedule.",
+			"User":  user,
+		})
+		return
+	}
+
+	id, err := strconv.Atoi(scheduleID)
+	if err != nil {
+		c.HTML(http.StatusBadRequest, "error.html", gin.H{
+			"Error": "Invalid schedule_id parameter",
+			"User":  user,
+		})
+		return
+	}
+
+	// Get Prefix for the schedule
+	prefix, err := scheduler.GetPrefixForSchedule(id)
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
+			"Error": "Error fetching prefix: " + err.Error(),
+			"User":  user,
+		})
+		return
+	}
+
+	// Get Instructors, Timeslots, and Rooms
+	instructors, err := scheduler.GetAllInstructors()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
+			"Error": "Error fetching instructors: " + err.Error(),
+			"User":  user,
+		})
+		return
+	}
+
+	timeslots, err := scheduler.GetAllTimeSlots()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
+			"Error": "Error fetching timeslots: " + err.Error(),
+			"User":  user,
+		})
+		return
+	}
+
+	rooms, err := scheduler.GetAllRooms()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
+			"Error": "Error fetching rooms: " + err.Error(),
+			"User":  user,
+		})
+		return
+	}
+
+	data := gin.H{
+		"User":        user,
+		"Prefix":      prefix.Prefix,
+		"Instructors": instructors,
+		"Timeslots":   timeslots,
+		"Rooms":       rooms,
+		"CSRFToken":   csrf.GetToken(c),
+	}
+
+	c.HTML(http.StatusOK, "add_course", data)
+}
+
+func (scheduler *wmu_scheduler) AddCourseGin(c *gin.Context) {
+	_, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
+
+	// Get schedule_id from session
+	scheduleID, err := scheduler.getCurrentSchedule(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No schedule selected"})
+		return
+	}
+
+	scheduleInt, err := strconv.Atoi(scheduleID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid schedule ID"})
+		return
+	}
+
+	// Parse form values
+	crn := c.PostForm("crn")
+	section := c.PostForm("section")
+	courseNumber := c.PostForm("course_number")
+	title := c.PostForm("title")
+	minCredits := c.PostForm("min_credits")
+	maxCredits := c.PostForm("max_credits")
+	minContact := c.PostForm("min_contact")
+	maxContact := c.PostForm("max_contact")
+	cap := c.PostForm("cap")
+	approval := c.PostForm("approval")
+	lab := c.PostForm("lab")
+	instructorID := c.PostForm("instructor_id")
+	timeslotID := c.PostForm("timeslot_id")
+	roomID := c.PostForm("room_id")
+	mode := c.PostForm("mode")
+	status := c.PostForm("status")
+	comment := c.PostForm("comment")
+
+	// Convert to appropriate types
+	crnInt := getIntFromInterface(crn)
+	sectionInt := getIntFromInterface(section)
+	courseNumberInt := getIntFromInterface(courseNumber)
+	minCreditsInt := getIntFromInterface(minCredits)
+	maxCreditsInt := getIntFromInterface(maxCredits)
+	minContactInt := getIntFromInterface(minContact)
+	maxContactInt := getIntFromInterface(maxContact)
+	capInt := getIntFromInterface(cap)
+	approvalInt := getIntFromInterface(approval)
+	labInt := getIntFromInterface(lab)
+	instructorIDInt := getIntFromInterface(instructorID)
+	timeslotIDInt := getIntFromInterface(timeslotID)
+	roomIDInt := getIntFromInterface(roomID)
+
+	err = scheduler.AddOrUpdateCourse(
+		crnInt, sectionInt, courseNumberInt, title,
+		minCreditsInt, maxCreditsInt, minContactInt, maxContactInt,
+		capInt, approvalInt, labInt, instructorIDInt, timeslotIDInt,
+		roomIDInt, mode, status, comment, scheduleInt,
+	)
+	if err != nil {
+		// If this is an AJAX request, return JSON error
+		if c.GetHeader("Content-Type") == "application/json" || c.GetHeader("X-Requested-With") == "XMLHttpRequest" {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		// Otherwise, redirect back with error
+		c.Redirect(http.StatusFound, fmt.Sprintf("/scheduler/courses?schedule_id=%d&error=%s", scheduleInt, err.Error()))
+		return
+	}
+
+	// Check if this is an AJAX request
+	if c.GetHeader("Content-Type") == "application/json" || c.GetHeader("X-Requested-With") == "XMLHttpRequest" {
+		// Return JSON for AJAX requests
+		courses, err := scheduler.GetCoursesForSchedule(scheduleInt)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch courses"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"message": "Course added successfully",
+			"courses": courses,
+		})
+	} else {
+		// Redirect for form submissions
+		c.Redirect(http.StatusFound, fmt.Sprintf("/scheduler/courses?schedule_id=%d&success=Course added successfully", scheduleInt))
 	}
 }
 
@@ -498,6 +675,16 @@ func (scheduler *wmu_scheduler) getCurrentUser(c *gin.Context) (*User, error) {
 	return user, nil
 }
 
+func (scheduler *wmu_scheduler) getCurrentSchedule(c *gin.Context) (string, error) {
+	session := sessions.Default(c)
+	scheduleID := session.Get("schedule_id")
+	if scheduleID == nil {
+		return "", fmt.Errorf("no schedule_id in session")
+	}
+
+	return scheduleID.(string), nil
+}
+
 // RenderRoomsPageGin renders the rooms page
 func (scheduler *wmu_scheduler) RenderRoomsPageGin(c *gin.Context) {
 	user, err := scheduler.getCurrentUser(c)
@@ -508,7 +695,7 @@ func (scheduler *wmu_scheduler) RenderRoomsPageGin(c *gin.Context) {
 
 	rooms, err := scheduler.GetAllRooms()
 	if err != nil {
-		c.HTML(http.StatusInternalServerError, "rooms.html", gin.H{
+		c.HTML(http.StatusInternalServerError, "rooms", gin.H{
 			"Error": "Error loading rooms: " + err.Error(),
 			"User":  user,
 		})
@@ -516,11 +703,12 @@ func (scheduler *wmu_scheduler) RenderRoomsPageGin(c *gin.Context) {
 	}
 
 	data := gin.H{
-		"Rooms": rooms,
-		"User":  user,
+		"Rooms":     rooms,
+		"User":      user,
+		"CSRFToken": csrf.GetToken(c),
 	}
 
-	c.HTML(http.StatusOK, "rooms.html", data)
+	c.HTML(http.StatusOK, "rooms", data)
 }
 
 // RenderTimeslotsPageGin renders the timeslots page
@@ -534,7 +722,7 @@ func (scheduler *wmu_scheduler) RenderTimeslotsPageGin(c *gin.Context) {
 	// Get all time slots (you may need to implement this method)
 	timeslots, err := scheduler.GetAllTimeSlots()
 	if err != nil {
-		c.HTML(http.StatusInternalServerError, "timeslots.html", gin.H{
+		c.HTML(http.StatusInternalServerError, "timeslots", gin.H{
 			"Error": "Error loading timeslots: " + err.Error(),
 			"User":  user,
 		})
@@ -542,11 +730,12 @@ func (scheduler *wmu_scheduler) RenderTimeslotsPageGin(c *gin.Context) {
 	}
 
 	data := gin.H{
-		"Timeslots": timeslots,
+		"TimeSlots": timeslots,
 		"User":      user,
+		"CSRFToken": csrf.GetToken(c),
 	}
 
-	c.HTML(http.StatusOK, "timeslots.html", data)
+	c.HTML(http.StatusOK, "timeslots", data)
 }
 
 // RenderInstructorsPageGin renders the instructors page
@@ -559,7 +748,7 @@ func (scheduler *wmu_scheduler) RenderInstructorsPageGin(c *gin.Context) {
 
 	instructors, err := scheduler.GetAllInstructors()
 	if err != nil {
-		c.HTML(http.StatusInternalServerError, "instructors.html", gin.H{
+		c.HTML(http.StatusInternalServerError, "instructors", gin.H{
 			"Error": "Error loading instructors: " + err.Error(),
 			"User":  user,
 		})
@@ -569,9 +758,10 @@ func (scheduler *wmu_scheduler) RenderInstructorsPageGin(c *gin.Context) {
 	data := gin.H{
 		"Instructors": instructors,
 		"User":        user,
+		"CSRFToken":   csrf.GetToken(c),
 	}
 
-	c.HTML(http.StatusOK, "instructors.html", data)
+	c.HTML(http.StatusOK, "instructors", data)
 }
 
 // RenderDepartmentsPageGin renders the departments page
@@ -605,7 +795,7 @@ func (scheduler *wmu_scheduler) RenderDepartmentsPageGin(c *gin.Context) {
 		"User":        user,
 	}
 
-	c.HTML(http.StatusOK, "departments.html", data)
+	c.HTML(http.StatusOK, "departments", data)
 }
 
 // RenderPrefixesPageGin renders the prefixes page
@@ -639,7 +829,7 @@ func (scheduler *wmu_scheduler) RenderPrefixesPageGin(c *gin.Context) {
 		"User":     user,
 	}
 
-	c.HTML(http.StatusOK, "prefixes.html", data)
+	c.HTML(http.StatusOK, "prefixes", data)
 }
 
 // RenderUsersPageGin renders the users page
@@ -673,7 +863,7 @@ func (scheduler *wmu_scheduler) RenderUsersPageGin(c *gin.Context) {
 		"User":  user,
 	}
 
-	c.HTML(http.StatusOK, "users.html", data)
+	c.HTML(http.StatusOK, "users", data)
 }
 
 func (scheduler *wmu_scheduler) DeleteScheduleGin(c *gin.Context) {
@@ -973,9 +1163,9 @@ func (scheduler *wmu_scheduler) importCourseFromExcel(data ExcelCourseData, sche
 		lab = 1
 	}
 
-	err = scheduler.AddOrUpdateCourse(crn, sectionInt, schedule.ID, courseNum, data.Title,
+	err = scheduler.AddOrUpdateCourse(crn, sectionInt, courseNum, data.Title,
 		minCredits, maxCredits, minContactHours, maxContactHours, capacity, appr, lab, instructorID, timeSlotID,
-		roomID, data.MeetingType, "Scheduled", data.Comment)
+		roomID, data.MeetingType, "Scheduled", data.Comment, schedule.ID)
 
 	return err
 }
@@ -1035,6 +1225,10 @@ func (scheduler *wmu_scheduler) ImportExcelHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create schedule"})
 		return
 	}
+
+	session := sessions.Default(c)
+	session.Set("schedule_id", strconv.Itoa(schedule.ID))
+	session.Save()
 
 	// Import the Excel file
 	err = scheduler.ImportExcelSchedule(uploadPath, schedule)

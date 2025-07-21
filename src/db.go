@@ -374,7 +374,7 @@ type Course struct {
 	Comment      string // New field for comments
 }
 
-func (scheduler *wmu_scheduler) GetCoursesForSchedule(schedule_id int) ([]Course, error) {
+func (scheduler *wmu_scheduler) GetCoursesForSchedule(scheduleID int) ([]Course, error) {
 	rows, err := scheduler.database.Query(`
 		SELECT c.id, c.crn, c.section, p.prefix, c.course_number, c.title, c.min_credits, c.max_contact, c.cap, 
 		       c.approval = 1 as approval, c.lab = 1 as lab,
@@ -387,7 +387,7 @@ func (scheduler *wmu_scheduler) GetCoursesForSchedule(schedule_id int) ([]Course
 		JOIN prefixes p ON s.prefix_id = p.id
 		WHERE c.schedule_id = ?
 		ORDER BY c.course_number, c.crn, c.section
-	`, schedule_id)
+	`, scheduleID)
 	if err != nil {
 		return nil, err
 	}
@@ -396,7 +396,8 @@ func (scheduler *wmu_scheduler) GetCoursesForSchedule(schedule_id int) ([]Course
 	var courses []Course
 	for rows.Next() {
 		var course Course
-		if err := rows.Scan(&course.ID, &course.CRN, &course.Section, &course.ScheduleID, &course.Prefix, &course.CourseNumber, &course.Title, &course.Credits, &course.Contact, &course.Cap, &course.Approval, &course.Lab, &course.InstructorID, &course.TimeSlotID, &course.RoomID, &course.Mode, &course.Status, &course.Comment); err != nil {
+		course.ScheduleID = scheduleID // Set ScheduleID from the parameter
+		if err := rows.Scan(&course.ID, &course.CRN, &course.Section, &course.Prefix, &course.CourseNumber, &course.Title, &course.Credits, &course.Contact, &course.Cap, &course.Approval, &course.Lab, &course.InstructorID, &course.TimeSlotID, &course.RoomID, &course.Mode, &course.Status, &course.Comment); err != nil {
 			return nil, err
 		}
 		courses = append(courses, course)
@@ -458,6 +459,24 @@ func (scheduler *wmu_scheduler) GetAllPrefixes() ([]Prefix, error) {
 		prefixes = append(prefixes, prefix)
 	}
 	return prefixes, nil
+}
+
+func (scheduler *wmu_scheduler) GetPrefixForSchedule(scheduleID int) (*Prefix, error) {
+	var prefix Prefix
+	err := scheduler.database.QueryRow(`
+		SELECT p.id, p.prefix, d.name
+		FROM schedules s
+		JOIN prefixes p ON s.prefix_id = p.id
+		JOIN departments d ON p.department_id = d.id
+		WHERE s.id = ?
+	`, scheduleID).Scan(&prefix.ID, &prefix.Prefix, &prefix.Department)
+	if err == sql.ErrNoRows {
+		return nil, nil // Not found
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &prefix, nil
 }
 
 type TimeSlot struct {
@@ -611,10 +630,55 @@ func (scheduler *wmu_scheduler) GetPrefix(prefix string) (*Prefix, error) {
 	return &p, nil
 }
 
+func (scheduler *wmu_scheduler) AddCourse(
+	crn int,
+	section int,
+	courseNumber int,
+	title string,
+	minCredits int,
+	maxCredits int,
+	minContact int,
+	maxContact int,
+	cap int,
+	approval bool,
+	lab bool,
+	instructorID int,
+	timeslotID int,
+	roomID int,
+	mode string,
+	status string,
+	comment string,
+	scheduleID int,
+) error {
+	// Use nil for MySQL NULL if any of the IDs are -1
+	var instructorVal, timeslotVal, roomVal interface{}
+	if instructorID == -1 {
+		instructorVal = nil
+	} else {
+		instructorVal = instructorID
+	}
+	if timeslotID == -1 {
+		timeslotVal = nil
+	} else {
+		timeslotVal = timeslotID
+	}
+	if roomID == -1 {
+		roomVal = nil
+	} else {
+		roomVal = roomID
+	}
+
+	_, err := scheduler.database.Exec(`
+		INSERT INTO courses (
+			crn, section, schedule_id, course_number, title, min_credits, max_contact, cap, approval, lab, instructor_id, timeslot_id, room_id, mode, status, comment
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, crn, section, scheduleID, courseNumber, title, minCredits, maxCredits, minContact, maxContact, cap, approval, lab, instructorVal, timeslotVal, roomVal, mode, status, comment)
+	return err
+}
+
 func (scheduler *wmu_scheduler) AddOrUpdateCourse(
 	crn int,
 	section int,
-	scheduleID int,
 	courseNumber int,
 	title string,
 	minCredits int,
@@ -630,6 +694,7 @@ func (scheduler *wmu_scheduler) AddOrUpdateCourse(
 	mode string,
 	status string,
 	comment string,
+	scheduleID int,
 ) error {
 	// Try to update first
 	var result sql.Result
@@ -654,9 +719,9 @@ func (scheduler *wmu_scheduler) AddOrUpdateCourse(
 
 	result, err = scheduler.database.Exec(`
 		UPDATE courses SET
-			section = ?, schedule_id = ?, course_number = ?, title = ?, min_credits = ?, max_credits = ?, min_contact = ?, max_contact = ?, cap = ?, approval = ?, lab = ?, instructor_id = ?, timeslot_id = ?, room_id = ?, mode = ?, status = ?, comment = ?
+			section = ?, course_number = ?, title = ?, min_credits = ?, max_credits = ?, min_contact = ?, max_contact = ?, cap = ?, approval = ?, lab = ?, instructor_id = ?, timeslot_id = ?, room_id = ?, mode = ?, status = ?, comment = ?
 		WHERE crn = ?
-	`, section, scheduleID, courseNumber, title, minCredits, maxCredits, minContactHours, maxContactHours, cap, appr, lab, instructorVal, timeslotVal, roomVal, mode, status, comment, crn)
+	`, section, courseNumber, title, minCredits, maxCredits, minContactHours, maxContactHours, cap, appr, lab, instructorVal, timeslotVal, roomVal, mode, status, comment, crn)
 
 	if err != nil {
 		return err

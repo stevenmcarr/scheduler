@@ -18,6 +18,16 @@
             width: 100%;
             min-width: 600px;
         }
+        .filter-row input,
+        .filter-row select {
+            width: 95%;
+            box-sizing: border-box;
+            padding: 4px 6px;
+            margin: 2px 0;
+        }
+        .filter-row {
+            background: #f9f9f9;
+        }
         th, td {
             padding: 8px 12px;
             border: 1px solid #ddd;
@@ -36,12 +46,21 @@
     </style>
 </head>
 <body>
-    {{ template "navbar.html" . }}
+    {{ template "navbar" . }}
 
     <h2>Rooms</h2>
     <div class="scroll-table-container">
         <table id="roomsTable">
             <thead>
+                <tr>
+                    <th colspan="5" style="text-align:left; padding-bottom: 8px;">
+                        <form action="/scheduler/add_room" method="get" style="display:inline;">
+                            <button type="submit" style="background-color:#4CAF50; color:white; border:none; padding:8px 16px; border-radius:4px; cursor:pointer;">
+                                + Add Room
+                            </button>
+                        </form>
+                    </th>
+                </tr>
                 <tr>
                     <th class="sortable" onclick="sortTable(0)">Building</th>
                     <th class="sortable" onclick="sortTable(1)">Room Number</th>
@@ -73,6 +92,60 @@
             </tbody>
         </table>
     </div>
+    <form id="saveRoomsForm" action="/scheduler/rooms" method="post">
+        <button type="button" id="saveChangesBtn" style="margin-top:16px; background-color:#2196F3; color:white; border:none; padding:8px 16px; border-radius:4px; cursor:pointer;">
+            Save Changes
+        </button>
+    </form>
+    <script>
+        document.getElementById('saveChangesBtn').addEventListener('click', function() {
+            const tableBody = document.getElementById('roomsTableBody');
+            const rows = Array.from(tableBody.querySelectorAll('tr')).filter(row => row.style.display !== 'none');
+            const form = document.getElementById('saveRoomsForm');
+            // Remove previous hidden inputs
+            Array.from(form.querySelectorAll('input[type=hidden]')).forEach(e => e.remove());
+            rows.forEach((row, idx) => {
+                const roomId = row.getAttribute('data-room-id');
+                const inputs = row.querySelectorAll('input');
+                const building = inputs[0].value;
+                const roomNumber = inputs[1].value;
+                const capacity = inputs[2].value;
+                const computerLab = inputs[3].checked ? 'on' : '';
+                const dedicatedLab = inputs[4].checked ? 'on' : '';
+                form.appendChild(Object.assign(document.createElement('input'), {
+                    type: 'hidden',
+                    name: `rooms[${idx}][ID]`,
+                    value: roomId
+                }));
+                form.appendChild(Object.assign(document.createElement('input'), {
+                    type: 'hidden',
+                    name: `rooms[${idx}][Building]`,
+                    value: building
+                }));
+                form.appendChild(Object.assign(document.createElement('input'), {
+                    type: 'hidden',
+                    name: `rooms[${idx}][RoomNumber]`,
+                    value: roomNumber
+                }));
+                form.appendChild(Object.assign(document.createElement('input'), {
+                    type: 'hidden',
+                    name: `rooms[${idx}][Capacity]`,
+                    value: capacity
+                }));
+                form.appendChild(Object.assign(document.createElement('input'), {
+                    type: 'hidden',
+                    name: `rooms[${idx}][ComputerLab]`,
+                    value: computerLab
+                }));
+                form.appendChild(Object.assign(document.createElement('input'), {
+                    type: 'hidden',
+                    name: `rooms[${idx}][DedicatedLab]`,
+                    value: dedicatedLab
+                }));
+            });
+            form.submit();
+        });
+    </script>
     <script>
         // Limit to 10 visible rows
         document.addEventListener('DOMContentLoaded', function() {
@@ -106,19 +179,6 @@
             table.setAttribute('data-sort-dir', asc ? 'asc' : 'desc');
         }
 
-        // Update handler (AJAX placeholder)
-        function updateRoom(input, field) {
-            const tr = input.closest('tr');
-            const roomId = tr.getAttribute('data-room-id');
-            let value;
-            if (input.type === 'checkbox') {
-                value = input.checked;
-            } else {
-                value = input.value;
-            }
-            // TODO: Replace with actual AJAX call to update the room in the backend
-            console.log('Update Room', roomId, field, value);
-        }
     </script>
 </body>
 </html>

@@ -1,0 +1,113 @@
+{{define "add_course"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Add Course</title>
+</head>
+<body>
+    {{template "navbar" .}}
+    <h1>Add New Course</h1>
+    <form method="POST" action="/scheduler/add_course">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+        <style>
+            .form-table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-bottom: 1em;
+            }
+            .form-table th {
+                background-color: #8B4513;
+                color: #fff;
+                padding: 8px;
+                text-align: left;
+            }
+            .form-table td {
+                padding: 8px;
+            }
+        </style>
+        <table class="form-table">
+            <tr>
+                <th>CRN</th>
+                <th>Section</th>
+                <th>Prefix</th>
+                <th>Course Number</th>
+                <th>Title</th>
+                <th>Credits</th>
+                <th>Contact</th>
+                <th>Cap</th>
+                <th>Approval Required</th>
+                <th>Lab</th>
+                <th>Instructor</th>
+                <th>Timeslot</th>
+                <th>Room</th>
+                <th>Mode</th>
+                <th>Comment</th>
+            </tr>
+            <tr>
+                <td><input type="number" id="crn" name="crn" required style="width: 50%;"></td>
+                <td><input type="text" id="section" name="section" required style="width: 50%;"></td>
+                <td>{{.Prefix}}</td>
+                <td><input type="text" id="course_number" name="course_number" required style="width: 50%;"></td>
+                <td><input type="text" id="title" name="title" required style="width: 100%;"></td>
+                <td>
+                    <input type="number" id="min_credits" name="min_credits" placeholder="Min" style="width: 45%;" required>
+                    <input type="number" id="max_credits" name="max_credits" placeholder="Max" style="width: 45%;" required>
+                </td>
+                <td>
+                    <input type="number" id="min_contact" name="min_contact" placeholder="Min" style="width: 45%;">
+                    <input type="number" id="max_contact" name="max_contact" placeholder="Max" style="width: 45%;">
+                </td>
+                <td><input type="number" id="cap" name="cap" required style="width: 33%;"></td>
+                <td><input type="checkbox" id="approval" name="approval" value="1"></td>
+                <td><input type="checkbox" id="lab" name="lab" value="1"></td>
+                <td>
+                    <select id="instructor_id" name="instructor_id">
+                        <option value="">Select Instructor</option>
+                        {{range .Instructors}}
+                            <option value="{{.ID}}">
+                                {{.FirstName}} {{.LastName}}
+                            </option>
+                        {{end}}
+                    </select>
+                </td>
+                <td>
+                    <select id="timeslot_id" name="timeslot_id">
+                       <option value="">Select Time</option>
+                        {{range .Timeslots}}
+                            <option value="{{.ID}}">
+                                {{.Days}} {{.StartTime}}-{{.EndTime}}
+                            </option>
+                        {{end}}
+                    </select>
+                </td>
+                <td>
+                    <select id="room_id" name="room_id">
+                        <option value="">Select Room</option>
+                                {{range $.Rooms}}
+                                <option value="{{.ID}}">
+                                    {{.Building}} {{.RoomNumber}}
+                                </option>
+                                {{end}}
+                    </select>
+                </td>
+                <td>
+                    <select name="mode">
+                        <option value="IP" {{if eq .Mode "IP"}}selected{{end}}>IP</option>
+                        <option value="FSO" {{if eq .Mode "FSO"}}selected{{end}}>FSO</option>
+                        <option value="PSO" {{if eq .Mode "PSO"}}selected{{end}}>PSO</option>
+                        <option value="H" {{if eq .Mode "H"}}selected{{end}}>H</option>
+                    </select>
+                </td>
+                <td><input type="text" id="comment" name="comment"></td>
+            </tr>
+        </table>
+
+        <div style="display: flex; gap: 10px; margin-top: 1em; justify-content: flex-end;"></div>
+            <button type="submit" style="background-color: #8B4513; color: #fff; border: none; padding: 10px 20px; cursor: pointer;">Add Course</button>
+            <button type="button" onclick="window.location.href='/scheduler/courses'" style="background-color: #8B4513; color: #fff; border: none; padding: 10px 20px; cursor: pointer;">Cancel</button>
+        </div>
+    </form>
+</body>
+</html>
+{{end}}

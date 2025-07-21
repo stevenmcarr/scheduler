@@ -65,12 +65,21 @@ func (scheduler *wmu_scheduler) router() *gin.Engine {
 	// Add CSRF middleware
 	r.Use(csrf.Middleware(csrf.Options{
 		Secret: "b7f8c2e4a1d9f3e6c5b2a8d7e4f1c3b6", // generated 32-char random hex string
+		TokenGetter: func(c *gin.Context) string {
+			// Look for CSRF token in form field 'csrf_token' or header 'X-CSRF-Token'
+			token := c.PostForm("csrf_token")
+			if token == "" {
+				token = c.GetHeader("X-CSRF-Token")
+			}
+			return token
+		},
 		ErrorFunc: func(c *gin.Context) {
 			c.JSON(400, gin.H{
 				"error": "CSRF token mismatch",
 				"debug": gin.H{
 					"token_from_form":   c.PostForm("csrf_token"),
 					"token_from_header": c.GetHeader("X-CSRF-Token"),
+					"expected_token":    csrf.GetToken(c),
 				},
 			})
 			c.Abort()
@@ -127,6 +136,15 @@ func (scheduler *wmu_scheduler) router() *gin.Engine {
 	r.POST("/scheduler/courses", func(c *gin.Context) {
 		scheduler.SaveCoursesGin(c)
 	})
+
+	r.GET("/scheduler/add_course", func(c *gin.Context) {
+		scheduler.RenderAddCoursePageGin(c)
+	})
+
+	r.POST("/scheduler/add_course", func(c *gin.Context) {
+		scheduler.AddCourseGin(c)
+	})
+
 	r.GET("/scheduler/rooms", func(c *gin.Context) {
 		scheduler.RenderRoomsPageGin(c)
 	})
