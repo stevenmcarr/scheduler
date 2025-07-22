@@ -50,6 +50,9 @@ func (scheduler *wmu_scheduler) router() *gin.Engine {
 
 	r.LoadHTMLGlob(templatePattern)
 
+	// Serve static files (images, CSS, JS, etc.)
+	r.Static("/scheduler/images", "./images")
+
 	// Add session middleware (required for CSRF)
 	// Use a 32-byte key for AES-256 encryption
 	sessionKey := []byte("your-secret-key-for-sessions-32b")
@@ -148,6 +151,19 @@ func (scheduler *wmu_scheduler) router() *gin.Engine {
 	r.GET("/scheduler/rooms", func(c *gin.Context) {
 		scheduler.RenderRoomsPageGin(c)
 	})
+
+	r.POST("/scheduler/rooms", func(c *gin.Context) {
+		scheduler.SaveOrDeleteRoomsGin(c)
+	})
+
+	r.GET("/scheduler/add_room", func(c *gin.Context) {
+		scheduler.RenderAddRoomPageGin(c)
+	})
+
+	r.POST("/scheduler/add_room", func(c *gin.Context) {
+		scheduler.AddRoomGin(c)
+	})
+
 	r.GET("/scheduler/timeslots", func(c *gin.Context) {
 		scheduler.RenderTimeslotsPageGin(c)
 	})

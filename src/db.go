@@ -374,18 +374,18 @@ type Course struct {
 	Comment      string // New field for comments
 }
 
-func (scheduler *wmu_scheduler) GetCoursesForSchedule(scheduleID int) ([]Course, error) {
+func (scheduler *wmu_scheduler) GetActiveCoursesForSchedule(scheduleID int) ([]Course, error) {
 	rows, err := scheduler.database.Query(`
 		SELECT c.id, c.crn, c.section, p.prefix, c.course_number, c.title, c.min_credits, c.max_contact, c.cap, 
-		       c.approval = 1 as approval, c.lab = 1 as lab,
+			   c.approval = 1 as approval, c.lab = 1 as lab,
 			   COALESCE(c.instructor_id, -1) as instructor_id,
 			   COALESCE(c.timeslot_id, -1) as timeslot_id,
 			   COALESCE(c.room_id, -1) as room_id,
-		       c.mode, c.status, c.comment
+			   c.mode, c.status, c.comment
 		FROM courses c
 		JOIN schedules s ON c.schedule_id = s.id
 		JOIN prefixes p ON s.prefix_id = p.id
-		WHERE c.schedule_id = ?
+		WHERE c.schedule_id = ? AND c.status != 'Deleted'
 		ORDER BY c.course_number, c.crn, c.section
 	`, scheduleID)
 	if err != nil {
@@ -400,7 +400,9 @@ func (scheduler *wmu_scheduler) GetCoursesForSchedule(scheduleID int) ([]Course,
 		if err := rows.Scan(&course.ID, &course.CRN, &course.Section, &course.Prefix, &course.CourseNumber, &course.Title, &course.Credits, &course.Contact, &course.Cap, &course.Approval, &course.Lab, &course.InstructorID, &course.TimeSlotID, &course.RoomID, &course.Mode, &course.Status, &course.Comment); err != nil {
 			return nil, err
 		}
-		courses = append(courses, course)
+		if course.Status != "Deleted" {
+			courses = append(courses, course)
+		}
 	}
 	return courses, nil
 }
@@ -646,7 +648,6 @@ func (scheduler *wmu_scheduler) AddCourse(
 	timeslotID int,
 	roomID int,
 	mode string,
-	status string,
 	comment string,
 	scheduleID int,
 ) error {
@@ -670,9 +671,9 @@ func (scheduler *wmu_scheduler) AddCourse(
 
 	_, err := scheduler.database.Exec(`
 		INSERT INTO courses (
-			crn, section, schedule_id, course_number, title, min_credits, max_contact, cap, approval, lab, instructor_id, timeslot_id, room_id, mode, status, comment
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, crn, section, scheduleID, courseNumber, title, minCredits, maxCredits, minContact, maxContact, cap, approval, lab, instructorVal, timeslotVal, roomVal, mode, status, comment)
+			crn, section, schedule_id, course_number, title, min_credits, max_credits, min_contact, max_contact, cap, approval, lab, instructor_id, timeslot_id, room_id, mode, status, comment
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? ,?, ?)
+	`, crn, section, scheduleID, courseNumber, title, minCredits, maxCredits, minContact, maxContact, cap, approval, lab, instructorVal, timeslotVal, roomVal, mode, "Added", comment)
 	return err
 }
 
@@ -929,4 +930,25 @@ func (scheduler *wmu_scheduler) GetScheduleName(scheduleID int) (string, error) 
 		return "", err
 	}
 	return fmt.Sprintf("%s %d", term, year), nil
+}
+
+// UpdateRoom updates a room's information
+func (scheduler *wmu_scheduler) UpdateRoom(roomID int, building string, roomNumber int, capacity int, computerLab bool, dedicatedLab bool) error {
+	query := `UPDATE rooms SET building = ?, room_number = ?, capacity = ?, computer_lab = ?, dedicated_lab = ? WHERE id = ?`
+	_, err := scheduler.database.Exec(query, building, roomNumber, capacity, computerLab, dedicatedLab, roomID)
+	return err
+}
+
+// DeleteRoom deletes a room by ID
+func (scheduler *wmu_scheduler) DeleteRoom(roomID int) error {
+	query := `DELETE FROM rooms WHERE id = ?`
+	_, err := scheduler.database.Exec(query, roomID)
+	return err
+}
+
+// AddRoom adds a new room
+func (scheduler *wmu_scheduler) AddRoom(building string, roomNumber string, capacity int, computerLab bool, dedicatedLab bool) error {
+	query := `INSERT INTO rooms (building, room_number, capacity, computer_lab, dedicated_lab) VALUES (?, ?, ?, ?, ?)`
+	_, err := scheduler.database.Exec(query, building, roomNumber, capacity, computerLab, dedicatedLab)
+	return err
 }

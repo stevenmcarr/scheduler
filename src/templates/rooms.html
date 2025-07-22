@@ -49,21 +49,28 @@
     {{ template "navbar" . }}
 
     <h2>Rooms</h2>
+    
+    {{if .Success}}
+    <div style="background-color: #d4edda; color: #155724; padding: 10px; margin-bottom: 20px; border: 1px solid #c3e6cb; border-radius: 4px;">
+        {{.Success}}
+    </div>
+    {{end}}
+    
+    {{if .Error}}
+    <div style="background-color: #f8d7da; color: #721c24; padding: 10px; margin-bottom: 20px; border: 1px solid #f5c6cb; border-radius: 4px;">
+        {{.Error}}
+    </div>
+    {{end}}
+    
     <div class="scroll-table-container">
         <table id="roomsTable">
             <thead>
                 <tr>
-                    <th colspan="5" style="text-align:left; padding-bottom: 8px;">
-                        <form action="/scheduler/add_room" method="get" style="display:inline;">
-                            <button type="submit" style="background-color:#4CAF50; color:white; border:none; padding:8px 16px; border-radius:4px; cursor:pointer;">
-                                + Add Room
-                            </button>
-                        </form>
+                    <th style="width: 40px;">
+                        <input type="checkbox" id="selectAll" label="Select All" onchange="toggleSelectAll()" />
                     </th>
-                </tr>
-                <tr>
-                    <th class="sortable" onclick="sortTable(0)">Building</th>
-                    <th class="sortable" onclick="sortTable(1)">Room Number</th>
+                    <th class="sortable" onclick="sortTable(1)">Building</th>
+                    <th class="sortable" onclick="sortTable(2)">Room Number</th>
                     <th>Capacity</th>
                     <th>Computer Lab</th>
                     <th>Dedicated Lab</th>
@@ -72,11 +79,14 @@
             <tbody id="roomsTableBody">
                 {{ range .Rooms }}
                 <tr data-room-id="{{ .ID }}">
+                    <td style="text-align:center;">
+                        <input type="checkbox" class="room-select" value="{{ .ID }}" />
+                    </td>
                     <td>
                         <input type="text" value="{{ .Building }}" onchange="updateRoom(this, 'Building')" />
                     </td>
                     <td>
-                        <input type="number" value="{{ .RoomNumber }}" onchange="updateRoom(this, 'RoomNumber')" />
+                        <input type="text" value="{{ .RoomNumber }}" onchange="updateRoom(this, 'RoomNumber')" />
                     </td>
                     <td>
                         <input type="number" value="{{ .Capacity }}" min="0" onchange="updateRoom(this, 'Capacity')" />
@@ -92,26 +102,95 @@
             </tbody>
         </table>
     </div>
-    <form id="saveRoomsForm" action="/scheduler/rooms" method="post">
-        <button type="button" id="saveChangesBtn" style="margin-top:16px; background-color:#2196F3; color:white; border:none; padding:8px 16px; border-radius:4px; cursor:pointer;">
+    
+    <!-- Action buttons moved to bottom -->
+    <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; padding: 16px 0;">
+        <form action="/scheduler/add_room" method="get" style="display:inline;">
+            <button type="submit" style="background-color:#8B4513; color:white; border:none; padding:8px 16px; border-radius:4px; cursor:pointer;">
+                + Add Room
+            </button>
+        </form>
+        <button type="button" id="saveChangesBtn" style="background-color:#8B4513; color:white; border:none; padding:8px 16px; border-radius:4px; cursor:pointer;">
             Save Changes
         </button>
+        <button type="button" id="deleteSelectedBtn" style="background-color:#8B4513; color:white; border:none; padding:8px 16px; border-radius:4px; cursor:pointer;">
+            Delete Selected
+        </button>
+    </div>
+    
+    <form id="saveRoomsForm" action="/scheduler/rooms" method="post">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+        <!-- Hidden inputs for saving will be added by JavaScript -->
     </form>
+    
+    <form id="deleteRoomsForm" action="/scheduler/rooms" method="post">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+        <input type="hidden" name="action" value="delete" />
+        <!-- Hidden inputs for room IDs to delete will be added by JavaScript -->
+    </form>
+
     <script>
+        // Toggle select all functionality
+        function toggleSelectAll() {
+            const selectAll = document.getElementById('selectAll');
+            const roomSelects = document.querySelectorAll('.room-select');
+            roomSelects.forEach(checkbox => {
+                checkbox.checked = selectAll.checked;
+            });
+        }
+
+        // Delete selected rooms
+        document.getElementById('deleteSelectedBtn').addEventListener('click', function() {
+            const selectedRooms = Array.from(document.querySelectorAll('.room-select:checked'));
+            
+            if (selectedRooms.length === 0) {
+                alert('Please select at least one room to delete.');
+                return;
+            }
+            
+            if (!confirm(`Are you sure you want to delete ${selectedRooms.length} selected room(s)?`)) {
+                return;
+            }
+            
+            const form = document.getElementById('deleteRoomsForm');
+            // Remove previous hidden inputs
+            Array.from(form.querySelectorAll('input[name="room_ids[]"]')).forEach(e => e.remove());
+            
+            // Add room IDs to delete
+            selectedRooms.forEach(checkbox => {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'room_ids[]';
+                input.value = checkbox.value;
+                form.appendChild(input);
+            });
+            
+            form.submit();
+        });
+
         document.getElementById('saveChangesBtn').addEventListener('click', function() {
             const tableBody = document.getElementById('roomsTableBody');
             const rows = Array.from(tableBody.querySelectorAll('tr')).filter(row => row.style.display !== 'none');
             const form = document.getElementById('saveRoomsForm');
-            // Remove previous hidden inputs
-            Array.from(form.querySelectorAll('input[type=hidden]')).forEach(e => e.remove());
+            // Remove previous room data inputs (but keep CSRF token)
+            Array.from(form.querySelectorAll('input[name^="rooms["]')).forEach(e => e.remove());
+            
+            // Ensure CSRF token is present
+            if (!form.querySelector('input[name="csrf_token"]')) {
+                form.appendChild(Object.assign(document.createElement('input'), {
+                    type: 'hidden',
+                    name: 'csrf_token',
+                    value: '{{.CSRFToken}}'
+                }));
+            }
             rows.forEach((row, idx) => {
                 const roomId = row.getAttribute('data-room-id');
                 const inputs = row.querySelectorAll('input');
-                const building = inputs[0].value;
-                const roomNumber = inputs[1].value;
-                const capacity = inputs[2].value;
-                const computerLab = inputs[3].checked ? 'on' : '';
-                const dedicatedLab = inputs[4].checked ? 'on' : '';
+                const building = inputs[1].value; // Skip the select checkbox
+                const roomNumber = inputs[2].value;
+                const capacity = inputs[3].value;
+                const computerLab = inputs[4].checked ? 'on' : '';
+                const dedicatedLab = inputs[5].checked ? 'on' : '';
                 form.appendChild(Object.assign(document.createElement('input'), {
                     type: 'hidden',
                     name: `rooms[${idx}][ID]`,
@@ -161,15 +240,10 @@
             const table = document.getElementById('roomsTable');
             const tbody = table.tBodies[0];
             const rows = Array.from(tbody.rows);
-            const isNumber = colIdx === 1;
             let asc = table.getAttribute('data-sort-col') != colIdx || table.getAttribute('data-sort-dir') !== 'asc';
             rows.sort((a, b) => {
                 let aVal = a.cells[colIdx].querySelector('input').value;
                 let bVal = b.cells[colIdx].querySelector('input').value;
-                if (isNumber) {
-                    aVal = parseInt(aVal, 10);
-                    bVal = parseInt(bVal, 10);
-                }
                 if (aVal < bVal) return asc ? -1 : 1;
                 if (aVal > bVal) return asc ? 1 : -1;
                 return 0;

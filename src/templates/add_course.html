@@ -104,7 +104,38 @@
         </table>
 
         <div style="display: flex; gap: 10px; margin-top: 1em; justify-content: flex-end;"></div>
-            <button type="submit" style="background-color: #8B4513; color: #fff; border: none; padding: 10px 20px; cursor: pointer;">Add Course</button>
+            <div style="display: flex; justify-content: flex-end; width: 100%;">
+                <button type="submit" id="add-course-btn" style="background-color: #8B4513; color: #fff; border: none; padding: 10px 20px; cursor: pointer;">Add Course</button>
+            </div>
+            <span id="error-message" style="color: red; margin-left: 15px;"></span>
+            <script>
+                document.querySelector('form').addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    const addBtn = document.getElementById('add-course-btn');
+                    addBtn.textContent = 'Adding Course ...';
+                    addBtn.disabled = true;
+                    const form = e.target;
+                    const data = new FormData(form);
+                    fetch(form.action, {
+                        method: 'POST',
+                        body: data,
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest'
+                        }
+                    })
+                    .then(response => response.json())
+                    .then(result => {
+                        if (result.success) {
+                            window.location.href = '/scheduler/courses';
+                        } else {
+                            alert(result.error || 'An error occurred while adding the course.');
+                        }
+                    })
+                    .catch(() => {
+                        document.getElementById('error-message').textContent = 'Network error.';
+                    });
+                });
+            </script>
             <button type="button" onclick="window.location.href='/scheduler/courses'" style="background-color: #8B4513; color: #fff; border: none; padding: 10px 20px; cursor: pointer;">Cancel</button>
         </div>
     </form>

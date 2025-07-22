@@ -290,7 +290,10 @@
                 </thead>
                 <tbody>
                     {{range .Courses}}
-                    <tr data-course-id="{{.ID}}">
+                    <tr data-course-id="{{.ID}}"
+                        {{if eq .Status "Added"}}style="background-color: #e6f9e6;"{{end}}
+                        {{if eq .Status "Updated"}}style="background-color: #fffbe6;"{{end}}
+                        {{if eq .Status "Removed"}}style="background-color: #ffe6e6;"{{end}}>
                         <td>
                             <input type="number" class="crn-input" value="{{.CRN}}" name="crn">
                         </td>
@@ -575,6 +578,7 @@
                 // Reset button state
                 saveButton.textContent = originalText;
                 saveButton.disabled = false;
+                window.location.reload();
             })
             .catch(error => {
                 console.error('Error saving changes:', error);

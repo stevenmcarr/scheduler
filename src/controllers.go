@@ -233,7 +233,7 @@ func (scheduler *wmu_scheduler) RenderCoursesPageGin(c *gin.Context) {
 	}
 
 	// Fetch courses from the database or service
-	courses, err := scheduler.GetCoursesForSchedule(id)
+	courses, err := scheduler.GetActiveCoursesForSchedule(id)
 	if err != nil {
 		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
 			"Error": "Error fetching courses: " + err.Error(),
@@ -524,29 +524,116 @@ func (scheduler *wmu_scheduler) AddCourseGin(c *gin.Context) {
 	timeslotID := c.PostForm("timeslot_id")
 	roomID := c.PostForm("room_id")
 	mode := c.PostForm("mode")
-	status := c.PostForm("status")
 	comment := c.PostForm("comment")
 
 	// Convert to appropriate types
-	crnInt := getIntFromInterface(crn)
-	sectionInt := getIntFromInterface(section)
-	courseNumberInt := getIntFromInterface(courseNumber)
-	minCreditsInt := getIntFromInterface(minCredits)
-	maxCreditsInt := getIntFromInterface(maxCredits)
-	minContactInt := getIntFromInterface(minContact)
-	maxContactInt := getIntFromInterface(maxContact)
-	capInt := getIntFromInterface(cap)
-	approvalInt := getIntFromInterface(approval)
-	labInt := getIntFromInterface(lab)
-	instructorIDInt := getIntFromInterface(instructorID)
-	timeslotIDInt := getIntFromInterface(timeslotID)
-	roomIDInt := getIntFromInterface(roomID)
+	crnInt, err := strconv.Atoi(crn)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid CRN"})
+		return
+	}
+	sectionInt, err := strconv.Atoi(section)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid section"})
+		return
+	}
 
-	err = scheduler.AddOrUpdateCourse(
+	courseNumberInt, err := strconv.Atoi(courseNumber)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid course number"})
+		return
+	}
+
+	minCreditsInt, err := strconv.Atoi(minCredits)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid min credits"})
+		return
+	}
+
+	maxCreditsInt, err := strconv.Atoi(maxCredits)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid max credits"})
+		return
+	}
+
+	minContactInt, err := strconv.Atoi(minContact)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid min contact"})
+		return
+	}
+
+	maxContactInt, err := strconv.Atoi(maxContact)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid max contact"})
+		return
+	}
+
+	capInt, err := strconv.Atoi(cap)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid cap"})
+		return
+	}
+
+	var approvalInt int
+	if approval == "" {
+		approvalInt = 0 // Default to 0 if not provided
+		err = nil
+	} else {
+		approvalInt, err = strconv.Atoi(approval)
+	}
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid approval"})
+		return
+	}
+
+	var labInt int
+	if lab == "" {
+		labInt = 0 // Default to 0 if not provided
+		err = nil
+	} else {
+		labInt, err = strconv.Atoi(lab)
+	}
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid lab"})
+		return
+	}
+
+	var instructorIDInt int
+	if instructorID == "" || instructorID == "<nil>" || instructorID == "null" {
+		instructorIDInt = -1 // Use -1 for null values
+	} else {
+		instructorIDInt, err = strconv.Atoi(instructorID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid instructor ID"})
+			return
+		}
+	}
+	var timeslotIDInt int
+	if timeslotID == "" || timeslotID == "<nil>" || timeslotID == "null" {
+		timeslotIDInt = -1 // Use -1 for null values
+	} else {
+		timeslotIDInt, err = strconv.Atoi(timeslotID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid timeslot ID"})
+			return
+		}
+	}
+	var roomIDInt int
+	if roomID == "" || roomID == "<nil>" || roomID == "null" {
+		roomIDInt = -1 // Use -1 for null values
+	} else {
+		roomIDInt, err = strconv.Atoi(roomID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid room ID"})
+			return
+		}
+	}
+
+	err = scheduler.AddCourse(
 		crnInt, sectionInt, courseNumberInt, title,
 		minCreditsInt, maxCreditsInt, minContactInt, maxContactInt,
-		capInt, approvalInt, labInt, instructorIDInt, timeslotIDInt,
-		roomIDInt, mode, status, comment, scheduleInt,
+		capInt, approvalInt == 1, labInt == 1, instructorIDInt, timeslotIDInt,
+		roomIDInt, mode, comment, scheduleInt,
 	)
 	if err != nil {
 		// If this is an AJAX request, return JSON error
@@ -562,13 +649,14 @@ func (scheduler *wmu_scheduler) AddCourseGin(c *gin.Context) {
 	// Check if this is an AJAX request
 	if c.GetHeader("Content-Type") == "application/json" || c.GetHeader("X-Requested-With") == "XMLHttpRequest" {
 		// Return JSON for AJAX requests
-		courses, err := scheduler.GetCoursesForSchedule(scheduleInt)
+		courses, err := scheduler.GetActiveCoursesForSchedule(scheduleInt)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch courses"})
 			return
 		}
 
 		c.JSON(http.StatusOK, gin.H{
+			"success": true,
 			"message": "Course added successfully",
 			"courses": courses,
 		})
@@ -693,6 +781,14 @@ func (scheduler *wmu_scheduler) RenderRoomsPageGin(c *gin.Context) {
 		return
 	}
 
+	// Get any error or success messages from session
+	session := sessions.Default(c)
+	successMsg := session.Get("success")
+	errorMsg := session.Get("error")
+	session.Delete("success")
+	session.Delete("error")
+	session.Save()
+
 	rooms, err := scheduler.GetAllRooms()
 	if err != nil {
 		c.HTML(http.StatusInternalServerError, "rooms", gin.H{
@@ -706,6 +802,13 @@ func (scheduler *wmu_scheduler) RenderRoomsPageGin(c *gin.Context) {
 		"Rooms":     rooms,
 		"User":      user,
 		"CSRFToken": csrf.GetToken(c),
+	}
+
+	if successMsg != nil {
+		data["Success"] = successMsg
+	}
+	if errorMsg != nil {
+		data["Error"] = errorMsg
 	}
 
 	c.HTML(http.StatusOK, "rooms", data)
@@ -1331,6 +1434,157 @@ func (scheduler *wmu_scheduler) UpdateCourseGin(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Course updated successfully"})
 }
 
+// RenderAddRoomPageGin renders the add room page
+func (scheduler *wmu_scheduler) RenderAddRoomPageGin(c *gin.Context) {
+	user, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Get any error or success messages from session
+	session := sessions.Default(c)
+	errorMsg := session.Get("error")
+	session.Delete("error")
+	session.Save()
+
+	data := gin.H{
+		"User":      user,
+		"CSRFToken": csrf.GetToken(c),
+	}
+
+	if errorMsg != nil {
+		data["Error"] = errorMsg
+	}
+
+	c.HTML(http.StatusOK, "add_room", data)
+}
+
+// SaveOrDeleteRoomsGin handles POST requests to save or delete rooms
+func (scheduler *wmu_scheduler) SaveOrDeleteRoomsGin(c *gin.Context) {
+	_, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Check if this is a delete operation
+	action := c.PostForm("action")
+	if action == "delete" {
+		// Handle room deletion
+		roomIDs := c.PostFormArray("room_ids[]")
+		if len(roomIDs) == 0 {
+			session := sessions.Default(c)
+			session.Set("error", "No rooms selected for deletion")
+			session.Save()
+			c.Redirect(http.StatusFound, "/scheduler/rooms")
+			return
+		}
+
+		var errors []string
+		deletedCount := 0
+
+		for _, roomIDStr := range roomIDs {
+			roomID, err := strconv.Atoi(roomIDStr)
+			if err != nil {
+				errors = append(errors, fmt.Sprintf("Invalid room ID: %s", roomIDStr))
+				continue
+			}
+
+			err = scheduler.DeleteRoom(roomID)
+			if err != nil {
+				errors = append(errors, fmt.Sprintf("Failed to delete room ID %d: %v", roomID, err))
+				continue
+			}
+			deletedCount++
+		}
+
+		if len(errors) > 0 {
+			session := sessions.Default(c)
+			session.Set("error", fmt.Sprintf("%d rooms deleted, %d errors occurred", deletedCount, len(errors)))
+			session.Save()
+		} else {
+			session := sessions.Default(c)
+			session.Set("success", fmt.Sprintf("%d rooms deleted successfully", deletedCount))
+			session.Save()
+		}
+		c.Redirect(http.StatusFound, "/scheduler/rooms")
+		return
+	}
+
+	// Handle room updates (save operation)
+	var successCount, errorCount int
+
+	// Get all room form data
+	// The form sends data as rooms[0][ID], rooms[0][Building], etc.
+	roomsData := make(map[int]map[string]string)
+
+	// Parse all form values
+	for key, values := range c.Request.PostForm {
+		if strings.HasPrefix(key, "rooms[") && len(values) > 0 {
+			// Extract index and field name from key like "rooms[0][Building]"
+			parts := strings.Split(key, "][")
+			if len(parts) == 2 {
+				indexStr := strings.TrimPrefix(parts[0], "rooms[")
+				fieldName := strings.TrimSuffix(parts[1], "]")
+
+				index, err := strconv.Atoi(indexStr)
+				if err != nil {
+					continue
+				}
+
+				if roomsData[index] == nil {
+					roomsData[index] = make(map[string]string)
+				}
+				roomsData[index][fieldName] = values[0]
+			}
+		}
+	}
+
+	// Process each room update
+	for _, roomData := range roomsData {
+		roomID, err := strconv.Atoi(roomData["ID"])
+		if err != nil {
+			errorCount++
+			continue
+		}
+
+		building := roomData["Building"]
+		roomNumber, err := strconv.Atoi(roomData["RoomNumber"])
+		if err != nil {
+			errorCount++
+			continue
+		}
+
+		capacity, err := strconv.Atoi(roomData["Capacity"])
+		if err != nil {
+			errorCount++
+			continue
+		}
+
+		computerLab := roomData["ComputerLab"] == "on"
+		dedicatedLab := roomData["DedicatedLab"] == "on"
+
+		err = scheduler.UpdateRoom(roomID, building, roomNumber, capacity, computerLab, dedicatedLab)
+		if err != nil {
+			errorCount++
+			continue
+		}
+		successCount++
+	}
+
+	if errorCount > 0 {
+		session := sessions.Default(c)
+		session.Set("error", fmt.Sprintf("%d rooms updated, %d errors occurred", successCount, errorCount))
+		session.Save()
+	} else {
+		session := sessions.Default(c)
+		session.Set("success", fmt.Sprintf("%d rooms updated successfully", successCount))
+		session.Save()
+	}
+	c.Redirect(http.StatusFound, "/scheduler/rooms")
+}
+
 // Helper functions for safe type conversion from interface{}
 func getStringFromInterface(value interface{}) string {
 	if value == nil {
@@ -1372,4 +1626,49 @@ func getIntFromInterface(value interface{}) int {
 	}
 
 	return 0
+}
+
+// AddRoomGin handles POST requests to add a new room
+func (scheduler *wmu_scheduler) AddRoomGin(c *gin.Context) {
+	// Get form values
+	building := c.PostForm("building")
+	roomNumberStr := c.PostForm("room_number")
+	capacityStr := c.PostForm("capacity")
+	computerLab := c.PostForm("computer_lab") == "1"
+	dedicatedLab := c.PostForm("dedicated_lab") == "1"
+
+	// Validate required fields
+	if building == "" || roomNumberStr == "" || capacityStr == "" {
+		// Set error message in session and redirect back to form
+		session := sessions.Default(c)
+		session.Set("error", "All fields are required")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/add_room")
+		return
+	}
+
+	capacity, err := strconv.Atoi(capacityStr)
+	if err != nil || capacity < 0 {
+		session := sessions.Default(c)
+		session.Set("error", "Invalid capacity")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/add_room")
+		return
+	}
+
+	// Add the room to the database
+	err = scheduler.AddRoom(building, roomNumberStr, capacity, computerLab, dedicatedLab)
+	if err != nil {
+		session := sessions.Default(c)
+		session.Set("error", "Failed to add room: "+err.Error())
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/add_room")
+		return
+	}
+
+	// Success - redirect to rooms page with success message
+	session := sessions.Default(c)
+	session.Set("success", "Room added successfully")
+	session.Save()
+	c.Redirect(http.StatusFound, "/scheduler/rooms")
 }
