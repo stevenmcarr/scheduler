@@ -1,0 +1,114 @@
+{{ define "add_instructor" }}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Add Instructor</title>
+    <style>
+        .form-container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .form-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 1em;
+        }
+        .form-table th {
+            background-color: #8B4513;
+            color: #fff;
+            padding: 12px;
+            text-align: left;
+        }
+        .form-table td {
+            padding: 12px;
+            border: 1px solid #ddd;
+        }
+        .form-table input, .form-table select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 20px;
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            color: white;
+        }
+        .btn-primary {
+            background-color: #8B4513;
+        }
+        .btn-secondary {
+            background-color: #6c757d;
+        }
+    </style>
+</head>
+<body>
+    {{ template "navbar" . }}
+
+    <div class="form-container">
+        <h2>Add New Instructor</h2>
+        
+        {{if .Error}}
+        <div style="background-color: #f8d7da; color: #721c24; padding: 10px; margin-bottom: 20px; border: 1px solid #f5c6cb; border-radius: 4px;">
+            {{.Error}}
+        </div>
+        {{end}}
+
+        <form method="POST" action="/scheduler/add_instructor">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            
+            <table class="form-table">
+                <tr>
+                    <th colspan="2">Instructor Information</th>
+                </tr>
+                <tr>
+                    <td><label for="last_name">Last Name:</label></td>
+                    <td><input type="text" id="last_name" name="last_name" required></td>
+                </tr>
+                <tr>
+                    <td><label for="first_name">First Name:</label></td>
+                    <td><input type="text" id="first_name" name="first_name" required></td>
+                </tr>
+                <tr>
+                    <td><label for="department">Department:</label></td>
+                    <td>
+                        <select id="department" name="department" required>
+                            <option value="">Select Department</option>
+                            {{range .Departments}}
+                            <option value="{{.Name}}">{{.Name}}</option>
+                            {{end}}
+                        </select>
+                    </td>
+                </tr>
+                <tr>
+                    <td><label for="status">Status:</label></td>
+                    <td>
+                        <select id="status" name="status" required>
+                            <option value="">Select Status</option>
+                            <option value="Full Time">Full Time</option>
+                            <option value="Part Time">Part Time</option>
+                            <option value="TA">TA</option>
+                        </select>
+                    </td>
+                </tr>
+            </table>
+            
+            <div class="buttons">
+                <button type="button" class="btn btn-secondary" onclick="window.location.href='/scheduler/instructors'">Cancel</button>
+                <button type="submit" class="btn btn-primary">Add Instructor</button>
+            </div>
+        </form>
+    </div>
+</body>
+</html>
+{{ end }}

@@ -7,74 +7,321 @@
     <style>
         body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
         .content { margin: 24px; }
-        table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
-        th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
-        th { background-color: #f2f2f2; }
-        .button-row { display: flex; gap: 12px; justify-content: flex-end; margin-bottom: 20px; }
-        button { padding: 8px 16px; font-size: 14px; cursor: pointer; }
-        .add-btn { background-color: #4CAF50; color: white; border: none; border-radius: 4px; }
-        .add-btn:hover { background-color: #45a049; }
-        .admin-warning { background-color: #ffeb3b; padding: 10px; border-radius: 4px; margin-bottom: 20px; }
-        .prefix-code { font-family: monospace; font-weight: bold; background: #f0f0f0; padding: 2px 6px; border-radius: 3px; }
-        .filter-section { background: #f5f5f5; padding: 15px; border-radius: 4px; margin-bottom: 20px; }
-        .filter-row { display: flex; gap: 15px; align-items: center; }
-        select, input { padding: 6px 10px; border: 1px solid #ccc; border-radius: 3px; }
+        
+        /* Table container with scrollbars */
+        .table-container {
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            overflow: auto;
+            max-height: 420px; /* Approximately 10 rows (42px per row) */
+            margin-bottom: 24px;
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin: 0;
+            min-width: 600px; /* Ensures horizontal scrollbar when needed */
+        }
+        
+        th, td { 
+            border: 1px solid #ccc; 
+            padding: 8px; 
+            text-align: left;
+            white-space: nowrap; /* Prevents text wrapping */
+            vertical-align: top;
+        }
+        
+        th { 
+            background-color: #8B4513;
+            color: white;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            border-bottom: 2px solid #654321;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        
+        /* Zebra striping for better readability */
+        tbody tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        
+        tbody tr:hover {
+            background-color: #e8f4f8;
+        }
+        
+        /* Modified row highlighting */
+        tr.modified {
+            background-color: #fff3cd !important;
+        }
+        
+        /* Input and select styling */
+        input[type="text"], select {
+            width: 100%;
+            padding: 4px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 12px;
+            box-sizing: border-box;
+        }
+        
+        /* Checkbox styling */
+        input[type="checkbox"] {
+            transform: scale(1.2);
+        }
+        
+        .button-row { 
+            display: flex; 
+            gap: 12px; 
+            justify-content: flex-end; 
+        }
+        
+        button { 
+            padding: 10px 20px; 
+            font-size: 14px; 
+            cursor: pointer;
+            border: 1px solid #8B4513;
+            background-color: #8B4513;
+            color: white;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+        }
+        
+        button:hover {
+            background-color: #654321;
+        }
+        
+        /* Scrollbar styling for webkit browsers */
+        .table-container::-webkit-scrollbar {
+            width: 12px;
+            height: 12px;
+        }
+        
+        .table-container::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 6px;
+        }
+        
+        .table-container::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 6px;
+        }
+        
+        .table-container::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .page-header h1 {
+            margin: 0;
+            color: #8B4513;
+        }
     </style>
 </head>
 <body>
     {{template "navbar" .}}
     <div class="content">
-        <h1>Course Prefix Management</h1>
-        <div class="admin-warning">
-            <strong>Administrator Access:</strong> You can manage course prefixes and their department assignments.
+        <div class="page-header">
+            <h1>Course Prefix Management</h1>
         </div>
         
-        <div class="filter-section">
-            <div class="filter-row">
-                <label>Filter by Department:</label>
-                <select id="departmentFilter">
-                    <option value="">All Departments</option>
-                    {{range .Departments}}
-                    <option value="{{.ID}}">{{.Name}}</option>
+        {{if .Success}}
+        <div style="background-color: #d4edda; color: #155724; padding: 10px; margin-bottom: 20px; border: 1px solid #c3e6cb; border-radius: 4px;">
+            {{.Success}}
+        </div>
+        {{end}}
+        
+        {{if .Error}}
+        <div style="background-color: #f8d7da; color: #721c24; padding: 10px; margin-bottom: 20px; border: 1px solid #f5c6cb; border-radius: 4px;">
+            {{.Error}}
+        </div>
+        {{end}}
+        
+        <!-- Hidden form for CSRF token -->
+        <form id="prefixes-form" method="POST" action="/scheduler/prefixes" style="display: none;">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+        </form>
+        
+        <div class="table-container">
+            <table id="prefixes-table">
+                <thead>
+                    <tr>
+                        <th style="width: 40px;">
+                            <input type="checkbox" id="selectAll" onchange="toggleSelectAll()" />
+                        </th>
+                        <th>Prefix Code</th>
+                        <th>Department</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Prefixes}}
+                    <tr data-prefix-id="{{.ID}}">
+                        <td style="text-align:center;">
+                            <input type="checkbox" class="prefix-select" value="{{.ID}}" />
+                        </td>
+                        <td>
+                            <input type="text" value="{{.Prefix}}" onchange="updatePrefix(this, 'Prefix')" />
+                        </td>
+                        <td>
+                            <select onchange="updatePrefix(this, 'Department')">
+                                <option value="">Select Department</option>
+                                {{$prefix := .}}
+                                {{range $.Departments}}
+                                <option value="{{.Name}}" {{if eq .Name $prefix.Department}}selected{{end}}>
+                                    {{.Name}}
+                                </option>
+                                {{end}}
+                            </select>
+                        </td>
+                    </tr>
                     {{end}}
-                </select>
-                <label>Search Prefix:</label>
-                <input type="text" id="prefixSearch" placeholder="Enter prefix code...">
-                <button type="button">Filter</button>
-                <button type="button">Clear</button>
-            </div>
+                </tbody>
+            </table>
         </div>
         
         <div class="button-row">
-            <button type="button" class="add-btn">Add New Prefix</button>
+            <button type="button" onclick="window.location.href='/scheduler/add_prefix'">+ Add New Prefix</button>
+            <button type="button" onclick="saveChanges()">Save Changes</button>
+            <button type="button" onclick="deleteSelected()">Delete Selected</button>
         </div>
-        <table>
-            <thead>
-                <tr>
-                    <th>Prefix Code</th>
-                    <th>Department</th>
-                    <th>Courses Using Prefix</th>
-                    <th>Created</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {{range .Prefixes}}
-                <tr>
-                    <td><span class="prefix-code">{{.Prefix}}</span></td>
-                    <td>{{.Department}}</td>
-                    <td>{{.CourseCount}} courses</td>
-                    <td>{{.CreatedAt}}</td>
-                    <td>
-                        <button type="button">Edit</button>
-                        <button type="button">View Courses</button>
-                        <button type="button">Delete</button>
-                    </td>
-                </tr>
-                {{end}}
-            </tbody>
-        </table>
+        
+        <!-- Hidden forms for delete functionality -->
+        <form id="deletePrefixesForm" action="/scheduler/prefixes" method="post" style="display: none;">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <input type="hidden" name="action" value="delete" />
+            <!-- Hidden inputs for prefix IDs to delete will be added by JavaScript -->
+        </form>
     </div>
+
+    <script>
+        function toggleSelectAll() {
+            const selectAll = document.getElementById('selectAll');
+            const prefixSelects = document.querySelectorAll('.prefix-select');
+            prefixSelects.forEach(checkbox => {
+                checkbox.checked = selectAll.checked;
+            });
+        }
+
+        function updatePrefix(element, field) {
+            // Mark the row as modified for later saving
+            const row = element.closest('tr');
+            row.classList.add('modified');
+        }
+
+        function deleteSelected() {
+            const selectedPrefixes = Array.from(document.querySelectorAll('.prefix-select:checked'));
+            
+            if (selectedPrefixes.length === 0) {
+                // Set session error message instead of alert
+                fetch('/scheduler/prefixes', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-Token': document.querySelector('input[name="csrf_token"]').value,
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: 'csrf_token=' + encodeURIComponent(document.querySelector('input[name="csrf_token"]').value) + '&no_selection=true'
+                }).then(() => {
+                    window.location.reload();
+                });
+                return;
+            }
+            
+            if (!confirm(`Are you sure you want to delete ${selectedPrefixes.length} selected prefix(es)?`)) {
+                return;
+            }
+            
+            const form = document.getElementById('deletePrefixesForm');
+            // Remove previous hidden inputs
+            Array.from(form.querySelectorAll('input[name="prefix_ids[]"]')).forEach(e => e.remove());
+            
+            // Add prefix IDs to delete
+            selectedPrefixes.forEach(checkbox => {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'prefix_ids[]';
+                input.value = checkbox.value;
+                form.appendChild(input);
+            });
+            
+            form.submit();
+        }
+
+        function saveChanges() {
+            const modifiedRows = document.querySelectorAll('tr.modified');
+            
+            if (modifiedRows.length === 0) {
+                // Set session error message and reload instead of alert
+                fetch('/scheduler/prefixes', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-Token': document.querySelector('input[name="csrf_token"]').value,
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: 'csrf_token=' + encodeURIComponent(document.querySelector('input[name="csrf_token"]').value) + '&no_changes=true'
+                }).then(() => {
+                    window.location.reload();
+                });
+                return;
+            }
+
+            const prefixes = [];
+            modifiedRows.forEach(row => {
+                const prefixId = row.getAttribute('data-prefix-id');
+                const inputs = row.querySelectorAll('input[type="text"]');
+                const selects = row.querySelectorAll('select');
+                
+                prefixes.push({
+                    id: prefixId,
+                    prefix: inputs[0].value,
+                    department: selects[0].value
+                });
+            });
+
+            // Get CSRF token
+            const csrfToken = document.querySelector('input[name="csrf_token"]').value;
+            
+            // Create form data
+            const formData = new FormData();
+            formData.append('csrf_token', csrfToken);
+            formData.append('prefixes', JSON.stringify(prefixes));
+
+            // Show loading state
+            const saveButton = document.querySelector('.save-btn');
+            if (saveButton) {
+                const originalText = saveButton.textContent;
+                saveButton.textContent = 'Saving...';
+                saveButton.disabled = true;
+            }
+
+            // Submit the data
+            fetch('/scheduler/prefixes', {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-Token': csrfToken
+                },
+                body: formData
+            })
+            .then(response => {
+                // Always redirect to show session messages
+                window.location.href = '/scheduler/prefixes';
+            })
+            .catch(error => {
+                console.error('Error saving changes:', error);
+                // Even on error, redirect to show session error message
+                window.location.href = '/scheduler/prefixes';
+            });
+        }
+    </script>
 </body>
 </html>
 {{end}}

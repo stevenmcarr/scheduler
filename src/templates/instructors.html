@@ -7,56 +7,335 @@
     <style>
         body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
         .content { margin: 24px; }
-        table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
-        th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
-        th { background-color: #f2f2f2; }
-        .button-row { display: flex; gap: 12px; justify-content: flex-end; margin-bottom: 20px; }
-        button { padding: 8px 16px; font-size: 14px; cursor: pointer; }
-        .add-btn { background-color: #4CAF50; color: white; border: none; border-radius: 4px; }
-        .add-btn:hover { background-color: #45a049; }
-        .status-badge { padding: 4px 8px; border-radius: 4px; font-size: 12px; }
-        .status-full-time { background-color: #4CAF50; color: white; }
-        .status-part-time { background-color: #FF9800; color: white; }
-        .status-ta { background-color: #2196F3; color: white; }
+        
+        /* Table container with scrollbars */
+        .table-container {
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            overflow: auto;
+            max-height: 420px; /* Approximately 10 rows (42px per row) */
+            margin-bottom: 24px;
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin: 0;
+            min-width: 800px; /* Ensures horizontal scrollbar when needed */
+        }
+        
+        th, td { 
+            border: 1px solid #ccc; 
+            padding: 8px; 
+            text-align: left;
+            white-space: nowrap; /* Prevents text wrapping */
+            vertical-align: top;
+        }
+        
+        th { 
+            background-color: #8B4513;
+            color: white;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            border-bottom: 2px solid #654321;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        
+        /* Column widths */
+        th:nth-child(1), td:nth-child(1) { width: 40px; } /* Checkbox */
+        th:nth-child(2), td:nth-child(2) { width: 150px; } /* Last Name */
+        th:nth-child(3), td:nth-child(3) { width: 150px; } /* First Name */
+        th:nth-child(4), td:nth-child(4) { width: 200px; } /* Department */
+        th:nth-child(5), td:nth-child(5) { width: 120px; } /* Status */
+        
+        /* Zebra striping for better readability */
+        tbody tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        
+        tbody tr:hover {
+            background-color: #e8f4f8;
+        }
+        
+        /* Modified row highlighting */
+        tr.modified {
+            background-color: #fff3cd !important;
+        }
+        
+        /* Input and select styling */
+        input[type="text"], select {
+            width: 100%;
+            padding: 4px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 12px;
+            box-sizing: border-box;
+        }
+        
+        .button-row { 
+            display: flex; 
+            gap: 12px; 
+            justify-content: flex-end; 
+        }
+        
+        button { 
+            padding: 10px 20px; 
+            font-size: 14px; 
+            cursor: pointer;
+            border: 1px solid #8B4513;
+            background-color: #8B4513;
+            color: white;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+        }
+        
+        button:hover {
+            background-color: #654321;
+        }
+        
+        /* Scrollbar styling for webkit browsers */
+        .table-container::-webkit-scrollbar {
+            width: 12px;
+            height: 12px;
+        }
+        
+        .table-container::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 6px;
+        }
+        
+        .table-container::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 6px;
+        }
+        
+        .table-container::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .page-header h1 {
+            margin: 0;
+            color: #8B4513;
+        }
     </style>
 </head>
 <body>
     {{template "navbar" .}}
     <div class="content">
-        <h1>Instructors</h1>
-        <div class="button-row">
-            <button type="button" class="add-btn">Add New Instructor</button>
+        <div class="page-header">
+            <h1>Instructors</h1>
         </div>
-        <table>
-            <thead>
-                <tr>
-                    <th>Name</th>
-                    <th>Department</th>
-                    <th>Status</th>
-                    <th>Email</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {{range .Instructors}}
-                <tr>
-                    <td>{{.FirstName}} {{.LastName}}</td>
-                    <td>{{.Department}}</td>
-                    <td>
-                        <span class="status-badge status-{{.Status | replace " " "-"}}">
-                            {{.Status}}
-                        </span>
-                    </td>
-                    <td>{{.Email}}</td>
-                    <td>
-                        <button type="button">Edit</button>
-                        <button type="button">Delete</button>
-                    </td>
-                </tr>
-                {{end}}
-            </tbody>
-        </table>
+        
+        {{if .Success}}
+        <div style="background-color: #d4edda; color: #155724; padding: 10px; margin-bottom: 20px; border: 1px solid #c3e6cb; border-radius: 4px;">
+            {{.Success}}
+        </div>
+        {{end}}
+        
+        {{if .Error}}
+        <div style="background-color: #f8d7da; color: #721c24; padding: 10px; margin-bottom: 20px; border: 1px solid #f5c6cb; border-radius: 4px;">
+            {{.Error}}
+        </div>
+        {{end}}
+        
+        <!-- Hidden form for CSRF token -->
+        <form id="instructors-form" method="POST" action="/scheduler/instructors" style="display: none;">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+        </form>
+        
+        <div class="table-container">
+            <table id="instructors-table">
+                <thead>
+                    <tr>
+                        <th style="width: 40px;">
+                            <input type="checkbox" id="selectAll" onchange="toggleSelectAll()" />
+                        </th>
+                        <th>Last Name</th>
+                        <th>First Name</th>
+                        <th>Department</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Instructors}}
+                    <tr data-instructor-id="{{.ID}}">
+                        <td style="text-align:center;">
+                            <input type="checkbox" class="instructor-select" value="{{.ID}}" />
+                        </td>
+                        <td>
+                            <input type="text" value="{{.LastName}}" onchange="updateInstructor(this, 'LastName')" />
+                        </td>
+                        <td>
+                            <input type="text" value="{{.FirstName}}" onchange="updateInstructor(this, 'FirstName')" />
+                        </td>
+                        <td>
+                            <select onchange="updateInstructor(this, 'Department')">
+                                <option value="">Select Department</option>
+                                {{$instructor := .}}
+                                {{range $.Departments}}
+                                <option value="{{.Name}}" {{if eq .Name $instructor.Department}}selected{{end}}>
+                                    {{.Name}}
+                                </option>
+                                {{end}}
+                            </select>
+                        </td>
+                        <td>
+                            <select onchange="updateInstructor(this, 'Status')">
+                                <option value="">Select Status</option>
+                                <option value="Full Time" {{if eq .Status "Full Time"}}selected{{end}}>Full Time</option>
+                                <option value="Part Time" {{if eq .Status "Part Time"}}selected{{end}}>Part Time</option>
+                                <option value="TA" {{if eq .Status "TA"}}selected{{end}}>TA</option>
+                            </select>
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="button-row">
+            <button type="button" onclick="window.location.href='/scheduler/add_instructor'">+ Add New Instructor</button>
+            <button type="button" onclick="saveChanges()">Save Changes</button>
+            <button type="button" onclick="deleteSelected()">Delete Selected</button>
+        </div>
+        
+        <!-- Hidden forms for delete functionality -->
+        <form id="deleteInstructorsForm" action="/scheduler/instructors" method="post" style="display: none;">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <input type="hidden" name="action" value="delete" />
+            <!-- Hidden inputs for instructor IDs to delete will be added by JavaScript -->
+        </form>
     </div>
+
+    <script>
+        function toggleSelectAll() {
+            const selectAll = document.getElementById('selectAll');
+            const instructorSelects = document.querySelectorAll('.instructor-select');
+            instructorSelects.forEach(checkbox => {
+                checkbox.checked = selectAll.checked;
+            });
+        }
+
+        function deleteSelected() {
+            const selectedInstructors = Array.from(document.querySelectorAll('.instructor-select:checked'));
+            
+            if (selectedInstructors.length === 0) {
+                // Set session error message instead of alert
+                fetch('/scheduler/instructors', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-Token': document.querySelector('input[name="csrf_token"]').value,
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: 'csrf_token=' + encodeURIComponent(document.querySelector('input[name="csrf_token"]').value) + '&no_selection=true'
+                }).then(() => {
+                    window.location.reload();
+                });
+                return;
+            }
+            
+            if (!confirm(`Are you sure you want to delete ${selectedInstructors.length} selected instructor(s)?`)) {
+                return;
+            }
+            
+            const form = document.getElementById('deleteInstructorsForm');
+            // Remove previous hidden inputs
+            Array.from(form.querySelectorAll('input[name="instructor_ids[]"]')).forEach(e => e.remove());
+            
+            // Add instructor IDs to delete
+            selectedInstructors.forEach(checkbox => {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'instructor_ids[]';
+                input.value = checkbox.value;
+                form.appendChild(input);
+            });
+            
+            form.submit();
+        }
+
+        function updateInstructor(element, field) {
+            // Mark the row as modified for later saving
+            const row = element.closest('tr');
+            row.classList.add('modified');
+        }
+
+        function saveChanges() {
+            const modifiedRows = document.querySelectorAll('tr.modified');
+            
+            if (modifiedRows.length === 0) {
+                // Set session error message and reload instead of alert
+                fetch('/scheduler/instructors', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-Token': document.querySelector('input[name="csrf_token"]').value,
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: 'csrf_token=' + encodeURIComponent(document.querySelector('input[name="csrf_token"]').value) + '&no_changes=true'
+                }).then(() => {
+                    window.location.reload();
+                });
+                return;
+            }
+
+            const instructors = [];
+            modifiedRows.forEach(row => {
+                const instructorId = row.getAttribute('data-instructor-id');
+                const inputs = row.querySelectorAll('input, select');
+                
+                instructors.push({
+                    id: instructorId,
+                    lastName: inputs[1].value,    // Skip checkbox, then Last Name
+                    firstName: inputs[2].value,   // First Name
+                    department: inputs[3].value,  // Department (select)
+                    status: inputs[4].value       // Status
+                });
+            });
+
+            // Get CSRF token
+            const csrfToken = document.querySelector('input[name="csrf_token"]').value;
+            
+            // Create form data
+            const formData = new FormData();
+            formData.append('csrf_token', csrfToken);
+            formData.append('instructors', JSON.stringify(instructors));
+
+            // Show loading state
+            const saveButton = event.target;
+            const originalText = saveButton.textContent;
+            saveButton.textContent = 'Saving...';
+            saveButton.disabled = true;
+
+            // Submit the data
+            fetch('/scheduler/instructors', {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-Token': csrfToken
+                },
+                body: formData
+            })
+            .then(response => {
+                // Always redirect to show session messages
+                window.location.href = '/scheduler/instructors';
+            })
+            .catch(error => {
+                console.error('Error saving changes:', error);
+                // Even on error, redirect to show session error message
+                window.location.href = '/scheduler/instructors';
+            });
+        }
+    </script>
 </body>
 </html>
 {{end}}

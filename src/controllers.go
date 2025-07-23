@@ -6,7 +6,7 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
-	"strconv"
+	"strconv
 	"strings"
 
 	"encoding/json"
@@ -203,6 +203,14 @@ func (scheduler *wmu_scheduler) RenderCoursesPageGin(c *gin.Context) {
 		return
 	}
 
+	// Get any error or success messages from session
+	session := sessions.Default(c)
+	successMsg := session.Get("success")
+	errorMsg := session.Get("error")
+	session.Delete("success")
+	session.Delete("error")
+	session.Save()
+
 	// Get schedule_id from the URL query parameters
 	scheduleID := c.Query("schedule_id")
 	if scheduleID == "" {
@@ -287,8 +295,13 @@ func (scheduler *wmu_scheduler) RenderCoursesPageGin(c *gin.Context) {
 		"Rooms":        rooms,
 		"TimeSlots":    timeSlots,
 		"CSRFToken":    csrf.GetToken(c),
-		"Success":      c.Query("success"),
-		"Error":        c.Query("error"),
+	}
+
+	if successMsg != nil {
+		data["Success"] = successMsg
+	}
+	if errorMsg != nil {
+		data["Error"] = errorMsg
 	}
 
 	c.HTML(http.StatusOK, "courses", data)
@@ -399,13 +412,18 @@ func (scheduler *wmu_scheduler) SaveCoursesGin(c *gin.Context) {
 		successCount++
 	}
 
-	// Respond with summary
+	// Set session messages and respond
+	session := sessions.Default(c)
 	if len(errors) > 0 {
+		session.Set("error", fmt.Sprintf("%d courses updated, %d errors", successCount, len(errors)))
+		session.Save()
 		c.JSON(http.StatusOK, gin.H{
 			"message": fmt.Sprintf("%d courses updated, %d errors", successCount, len(errors)),
 			"errors":  errors,
 		})
 	} else {
+		session.Set("success", fmt.Sprintf("All %d courses updated successfully", successCount))
+		session.Save()
 		c.JSON(http.StatusOK, gin.H{
 			"message": fmt.Sprintf("All %d courses updated successfully", successCount),
 		})
@@ -418,6 +436,14 @@ func (scheduler *wmu_scheduler) RenderAddCoursePageGin(c *gin.Context) {
 		c.Redirect(http.StatusFound, "/scheduler/login")
 		return
 	}
+
+	// Get any error or success messages from session
+	session := sessions.Default(c)
+	successMsg := session.Get("success")
+	errorMsg := session.Get("error")
+	session.Delete("success")
+	session.Delete("error")
+	session.Save()
 
 	// Get schedule_id from session
 	scheduleID, err := scheduler.getCurrentSchedule(c)
@@ -483,6 +509,13 @@ func (scheduler *wmu_scheduler) RenderAddCoursePageGin(c *gin.Context) {
 		"Timeslots":   timeslots,
 		"Rooms":       rooms,
 		"CSRFToken":   csrf.GetToken(c),
+	}
+
+	if successMsg != nil {
+		data["Success"] = successMsg
+	}
+	if errorMsg != nil {
+		data["Error"] = errorMsg
 	}
 
 	c.HTML(http.StatusOK, "add_course", data)
@@ -638,16 +671,28 @@ func (scheduler *wmu_scheduler) AddCourseGin(c *gin.Context) {
 	if err != nil {
 		// If this is an AJAX request, return JSON error
 		if c.GetHeader("Content-Type") == "application/json" || c.GetHeader("X-Requested-With") == "XMLHttpRequest" {
+			// Set session error message
+			session := sessions.Default(c)
+			session.Set("error", err.Error())
+			session.Save()
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		// Otherwise, redirect back with error
-		c.Redirect(http.StatusFound, fmt.Sprintf("/scheduler/courses?schedule_id=%d&error=%s", scheduleInt, err.Error()))
+		// Otherwise, set session error and redirect
+		session := sessions.Default(c)
+		session.Set("error", err.Error())
+		session.Save()
+		c.Redirect(http.StatusFound, fmt.Sprintf("/scheduler/courses?schedule_id=%d", scheduleInt))
 		return
 	}
 
 	// Check if this is an AJAX request
 	if c.GetHeader("Content-Type") == "application/json" || c.GetHeader("X-Requested-With") == "XMLHttpRequest" {
+		// Set session success message
+		session := sessions.Default(c)
+		session.Set("success", "Course added successfully")
+		session.Save()
+
 		// Return JSON for AJAX requests
 		courses, err := scheduler.GetActiveCoursesForSchedule(scheduleInt)
 		if err != nil {
@@ -661,8 +706,11 @@ func (scheduler *wmu_scheduler) AddCourseGin(c *gin.Context) {
 			"courses": courses,
 		})
 	} else {
-		// Redirect for form submissions
-		c.Redirect(http.StatusFound, fmt.Sprintf("/scheduler/courses?schedule_id=%d&success=Course added successfully", scheduleInt))
+		// Set session success message and redirect
+		session := sessions.Default(c)
+		session.Set("success", "Course added successfully")
+		session.Save()
+		c.Redirect(http.StatusFound, fmt.Sprintf("/scheduler/courses?schedule_id=%d", scheduleInt))
 	}
 }
 
@@ -672,6 +720,14 @@ func (scheduler *wmu_scheduler) RenderHomePageGin(c *gin.Context) {
 		c.Redirect(http.StatusFound, "/scheduler/login")
 		return
 	}
+
+	// Get any error or success messages from session
+	session := sessions.Default(c)
+	successMsg := session.Get("success")
+	errorMsg := session.Get("error")
+	session.Delete("success")
+	session.Delete("error")
+	session.Save()
 
 	// Fetch schedule data
 	schedules, err := scheduler.GetAllSchedules()
@@ -687,6 +743,13 @@ func (scheduler *wmu_scheduler) RenderHomePageGin(c *gin.Context) {
 		"Schedules": schedules,
 		"User":      user,
 		"CSRFToken": csrf.GetToken(c),
+	}
+
+	if successMsg != nil {
+		data["Success"] = successMsg
+	}
+	if errorMsg != nil {
+		data["Error"] = errorMsg
 	}
 
 	c.HTML(http.StatusOK, "home.html", data)
@@ -822,7 +885,15 @@ func (scheduler *wmu_scheduler) RenderTimeslotsPageGin(c *gin.Context) {
 		return
 	}
 
-	// Get all time slots (you may need to implement this method)
+	// Get any error or success messages from session
+	session := sessions.Default(c)
+	successMsg := session.Get("success")
+	errorMsg := session.Get("error")
+	session.Delete("success")
+	session.Delete("error")
+	session.Save()
+
+	// Get all time slots
 	timeslots, err := scheduler.GetAllTimeSlots()
 	if err != nil {
 		c.HTML(http.StatusInternalServerError, "timeslots", gin.H{
@@ -836,6 +907,13 @@ func (scheduler *wmu_scheduler) RenderTimeslotsPageGin(c *gin.Context) {
 		"TimeSlots": timeslots,
 		"User":      user,
 		"CSRFToken": csrf.GetToken(c),
+	}
+
+	if successMsg != nil {
+		data["Success"] = successMsg
+	}
+	if errorMsg != nil {
+		data["Error"] = errorMsg
 	}
 
 	c.HTML(http.StatusOK, "timeslots", data)
@@ -858,10 +936,30 @@ func (scheduler *wmu_scheduler) RenderInstructorsPageGin(c *gin.Context) {
 		return
 	}
 
+	departments, err := scheduler.GetAllDepartments()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "instructors", gin.H{
+			"Error": "Error loading departments: " + err.Error(),
+			"User":  user,
+		})
+		return
+	}
+
+	// Get success/error messages from session
+	session := sessions.Default(c)
+	successMessage := session.Get("success")
+	errorMessage := session.Get("error")
+	session.Delete("success")
+	session.Delete("error")
+	session.Save()
+
 	data := gin.H{
 		"Instructors": instructors,
+		"Departments": departments,
 		"User":        user,
 		"CSRFToken":   csrf.GetToken(c),
+		"Success":     successMessage,
+		"Error":       errorMessage,
 	}
 
 	c.HTML(http.StatusOK, "instructors", data)
@@ -884,6 +982,14 @@ func (scheduler *wmu_scheduler) RenderDepartmentsPageGin(c *gin.Context) {
 		return
 	}
 
+	// Get any error or success messages from session
+	session := sessions.Default(c)
+	successMsg := session.Get("success")
+	errorMsg := session.Get("error")
+	session.Delete("success")
+	session.Delete("error")
+	session.Save()
+
 	departments, err := scheduler.GetAllDepartments()
 	if err != nil {
 		c.HTML(http.StatusInternalServerError, "departments.html", gin.H{
@@ -896,6 +1002,14 @@ func (scheduler *wmu_scheduler) RenderDepartmentsPageGin(c *gin.Context) {
 	data := gin.H{
 		"Departments": departments,
 		"User":        user,
+		"CSRFToken":   csrf.GetToken(c),
+	}
+
+	if successMsg != nil {
+		data["Success"] = successMsg
+	}
+	if errorMsg != nil {
+		data["Error"] = errorMsg
 	}
 
 	c.HTML(http.StatusOK, "departments", data)
@@ -918,18 +1032,44 @@ func (scheduler *wmu_scheduler) RenderPrefixesPageGin(c *gin.Context) {
 		return
 	}
 
+	// Get any error or success messages from session
+	session := sessions.Default(c)
+	successMsg := session.Get("success")
+	errorMsg := session.Get("error")
+	session.Delete("success")
+	session.Delete("error")
+	session.Save()
+
 	prefixes, err := scheduler.GetAllPrefixes()
 	if err != nil {
-		c.HTML(http.StatusInternalServerError, "prefixes.html", gin.H{
+		c.HTML(http.StatusInternalServerError, "prefixes", gin.H{
 			"Error": "Error loading prefixes: " + err.Error(),
 			"User":  user,
 		})
 		return
 	}
 
+	departments, err := scheduler.GetAllDepartments()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "prefixes", gin.H{
+			"Error": "Error loading departments: " + err.Error(),
+			"User":  user,
+		})
+		return
+	}
+
 	data := gin.H{
-		"Prefixes": prefixes,
-		"User":     user,
+		"Prefixes":    prefixes,
+		"Departments": departments,
+		"User":        user,
+		"CSRFToken":   csrf.GetToken(c),
+	}
+
+	if successMsg != nil {
+		data["Success"] = successMsg
+	}
+	if errorMsg != nil {
+		data["Error"] = errorMsg
 	}
 
 	c.HTML(http.StatusOK, "prefixes", data)
@@ -952,9 +1092,17 @@ func (scheduler *wmu_scheduler) RenderUsersPageGin(c *gin.Context) {
 		return
 	}
 
+	// Get any error or success messages from session
+	session := sessions.Default(c)
+	successMsg := session.Get("success")
+	errorMsg := session.Get("error")
+	session.Delete("success")
+	session.Delete("error")
+	session.Save()
+
 	users, err := scheduler.GetAllUsers()
 	if err != nil {
-		c.HTML(http.StatusInternalServerError, "users.html", gin.H{
+		c.HTML(http.StatusInternalServerError, "users", gin.H{
 			"Error": "Error loading users: " + err.Error(),
 			"User":  user,
 		})
@@ -962,8 +1110,16 @@ func (scheduler *wmu_scheduler) RenderUsersPageGin(c *gin.Context) {
 	}
 
 	data := gin.H{
-		"Users": users,
-		"User":  user,
+		"Users":     users,
+		"User":      user,
+		"CSRFToken": csrf.GetToken(c),
+	}
+
+	if successMsg != nil {
+		data["Success"] = successMsg
+	}
+	if errorMsg != nil {
+		data["Error"] = errorMsg
 	}
 
 	c.HTML(http.StatusOK, "users", data)
@@ -1550,11 +1706,7 @@ func (scheduler *wmu_scheduler) SaveOrDeleteRoomsGin(c *gin.Context) {
 		}
 
 		building := roomData["Building"]
-		roomNumber, err := strconv.Atoi(roomData["RoomNumber"])
-		if err != nil {
-			errorCount++
-			continue
-		}
+		roomNumber := roomData["RoomNumber"]
 
 		capacity, err := strconv.Atoi(roomData["Capacity"])
 		if err != nil {
@@ -1585,90 +1737,470 @@ func (scheduler *wmu_scheduler) SaveOrDeleteRoomsGin(c *gin.Context) {
 	c.Redirect(http.StatusFound, "/scheduler/rooms")
 }
 
-// Helper functions for safe type conversion from interface{}
-func getStringFromInterface(value interface{}) string {
-	if value == nil {
-		return ""
-	}
-	if str, ok := value.(string); ok {
-		return str
-	}
-	// Fallback to string representation
-	return fmt.Sprintf("%v", value)
-}
-
-func getIntFromInterface(value interface{}) int {
-	if value == nil {
-		return 0
+// SaveTimeslotsGin handles POST requests to save timeslot changes and bulk deletion
+func (scheduler *wmu_scheduler) SaveTimeslotsGin(c *gin.Context) {
+	_, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
 	}
 
-	// Try direct int conversion
-	if intVal, ok := value.(int); ok {
-		return intVal
-	}
+	session := sessions.Default(c)
 
-	// Try float64 (common from JSON)
-	if floatVal, ok := value.(float64); ok {
-		return int(floatVal)
-	}
-
-	// Try string conversion
-	if strVal, ok := value.(string); ok {
-		if intVal, err := strconv.Atoi(strVal); err == nil {
-			return intVal
+	// Check if this is a delete operation
+	action := c.PostForm("action")
+	if action == "delete" {
+		// Handle timeslot deletion
+		timeslotIDs := c.PostFormArray("timeslot_ids[]")
+		if len(timeslotIDs) == 0 {
+			session.Set("error", "No timeslots selected for deletion")
+			session.Save()
+			c.Redirect(http.StatusFound, "/scheduler/timeslots")
+			return
 		}
+
+		var errors []string
+		deletedCount := 0
+
+		for _, timeslotIDStr := range timeslotIDs {
+			timeslotID, err := strconv.Atoi(timeslotIDStr)
+			if err != nil {
+				errors = append(errors, fmt.Sprintf("Invalid timeslot ID: %s", timeslotIDStr))
+				continue
+			}
+
+			err = scheduler.DeleteTimeslot(timeslotID)
+			if err != nil {
+				errors = append(errors, fmt.Sprintf("Failed to delete timeslot ID %d: %v", timeslotID, err))
+				continue
+			}
+			deletedCount++
+		}
+
+		if len(errors) > 0 {
+			session.Set("error", fmt.Sprintf("%d timeslots deleted, %d errors occurred", deletedCount, len(errors)))
+		} else {
+			session.Set("success", fmt.Sprintf("%d timeslots deleted successfully", deletedCount))
+		}
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/timeslots")
+		return
 	}
 
-	// Fallback: convert to string then to int
-	strVal := fmt.Sprintf("%.0f", value)
-	if intVal, err := strconv.Atoi(strVal); err == nil {
-		return intVal
+	// Check for special cases
+	if c.PostForm("no_changes") == "true" {
+		session.Set("error", "No changes to save")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/timeslots")
+		return
 	}
 
-	return 0
+	if c.PostForm("no_selection") == "true" {
+		session.Set("error", "No timeslots selected for deletion")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/timeslots")
+		return
+	}
+
+	// Get the timeslots JSON data
+	timeslotsJSON := c.PostForm("timeslots")
+	if timeslotsJSON == "" {
+		session.Set("error", "No timeslot data provided")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/timeslots")
+		return
+	}
+
+	// Parse the JSON data
+	var timeslots []map[string]interface{}
+	err = json.Unmarshal([]byte(timeslotsJSON), &timeslots)
+	if err != nil {
+		session.Set("error", "Invalid timeslot data format")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/timeslots")
+		return
+	}
+
+	// Update each timeslot
+	successCount := 0
+	errorCount := 0
+
+	for _, timeslotData := range timeslots {
+		id := getIntFromInterface(timeslotData["id"])
+		startTime := getStringFromInterface(timeslotData["startTime"])
+		endTime := getStringFromInterface(timeslotData["endTime"])
+		days := getStringFromInterface(timeslotData["days"])
+
+		if id <= 0 || startTime == "" || endTime == "" || days == "" {
+			errorCount++
+			continue
+		}
+
+		err = scheduler.UpdateTimeslot(id, startTime, endTime, days)
+		if err != nil {
+			errorCount++
+			continue
+		}
+		successCount++
+	}
+
+	// Set appropriate success/error message
+	if errorCount > 0 {
+		session.Set("error", fmt.Sprintf("%d timeslots updated, %d errors occurred", successCount, errorCount))
+	} else {
+		session.Set("success", fmt.Sprintf("%d timeslots updated successfully", successCount))
+	}
+	session.Save()
+	c.Redirect(http.StatusFound, "/scheduler/timeslots")
 }
 
-// AddRoomGin handles POST requests to add a new room
-func (scheduler *wmu_scheduler) AddRoomGin(c *gin.Context) {
+// RenderAddTimeslotPageGin renders the add timeslot page
+func (scheduler *wmu_scheduler) RenderAddTimeslotPageGin(c *gin.Context) {
+	user, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Get any error or success messages from session
+	session := sessions.Default(c)
+	errorMsg := session.Get("error")
+	session.Delete("error")
+	session.Save()
+
+	data := gin.H{
+		"User":      user,
+		"CSRFToken": csrf.GetToken(c),
+	}
+
+	if errorMsg != nil {
+		data["Error"] = errorMsg
+	}
+
+	c.HTML(http.StatusOK, "add_timeslot", data)
+}
+
+// AddTimeslotGin handles POST requests to add a new timeslot
+func (scheduler *wmu_scheduler) AddTimeslotGin(c *gin.Context) {
 	// Get form values
-	building := c.PostForm("building")
-	roomNumberStr := c.PostForm("room_number")
-	capacityStr := c.PostForm("capacity")
-	computerLab := c.PostForm("computer_lab") == "1"
-	dedicatedLab := c.PostForm("dedicated_lab") == "1"
+	startTime := c.PostForm("start_time")
+	endTime := c.PostForm("end_time")
+	Monday := c.PostForm("M")
+	Tuesday := c.PostForm("T")
+	Wednesday := c.PostForm("W")
+	Thursday := c.PostForm("R")
+	Friday := c.PostForm("F")
 
 	// Validate required fields
-	if building == "" || roomNumberStr == "" || capacityStr == "" {
-		// Set error message in session and redirect back to form
+	if startTime == "" || endTime == "" || (Monday == "" && Tuesday == "" && Wednesday == "" && Thursday == "" && Friday == "") {
 		session := sessions.Default(c)
 		session.Set("error", "All fields are required")
 		session.Save()
-		c.Redirect(http.StatusFound, "/scheduler/add_room")
+		c.Redirect(http.StatusFound, "/scheduler/add_timeslot")
 		return
 	}
 
-	capacity, err := strconv.Atoi(capacityStr)
-	if err != nil || capacity < 0 {
-		session := sessions.Default(c)
-		session.Set("error", "Invalid capacity")
-		session.Save()
-		c.Redirect(http.StatusFound, "/scheduler/add_room")
-		return
-	}
-
-	// Add the room to the database
-	err = scheduler.AddRoom(building, roomNumberStr, capacity, computerLab, dedicatedLab)
+	// Add the timeslot to the database
+	err := scheduler.AddTimeslotWithDays(startTime, endTime, Monday != "", Tuesday != "", Wednesday != "", Thursday != "", Friday != "")
 	if err != nil {
 		session := sessions.Default(c)
-		session.Set("error", "Failed to add room: "+err.Error())
+		session.Set("error", "Failed to add timeslot: "+err.Error())
 		session.Save()
-		c.Redirect(http.StatusFound, "/scheduler/add_room")
+		c.Redirect(http.StatusFound, "/scheduler/add_timeslot")
 		return
 	}
 
-	// Success - redirect to rooms page with success message
+	// Success - redirect to timeslots page with success message
 	session := sessions.Default(c)
-	session.Set("success", "Room added successfully")
+	session.Set("success", "Timeslot added successfully")
 	session.Save()
-	c.Redirect(http.StatusFound, "/scheduler/rooms")
+	c.Redirect(http.StatusFound, "/scheduler/timeslots")
 }
+
+// SaveInstructorsGin handles saving instructor changes and bulk deletion
+func (scheduler *wmu_scheduler) SaveInstructorsGin(c *gin.Context) {
+	_, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	session := sessions.Default(c)
+
+	// Check if this is a delete operation
+	action := c.PostForm("action")
+	if action == "delete" {
+		// Handle instructor deletion
+		instructorIDs := c.PostFormArray("instructor_ids[]")
+		if len(instructorIDs) == 0 {
+			session.Set("error", "No instructors selected for deletion")
+			session.Save()
+			c.Redirect(http.StatusFound, "/scheduler/instructors")
+			return
+		}
+
+		var errors []string
+		deletedCount := 0
+
+		for _, instructorIDStr := range instructorIDs {
+			instructorID, err := strconv.Atoi(instructorIDStr)
+			if err != nil {
+				errors = append(errors, fmt.Sprintf("Invalid instructor ID: %s", instructorIDStr))
+				continue
+			}
+
+			err = scheduler.DeleteInstructor(instructorID)
+			if err != nil {
+				errors = append(errors, fmt.Sprintf("Failed to delete instructor ID %d: %v", instructorID, err))
+				continue
+			}
+			deletedCount++
+		}
+
+		if len(errors) > 0 {
+			session.Set("error", fmt.Sprintf("%d instructors deleted, %d errors occurred", deletedCount, len(errors)))
+		} else {
+			session.Set("success", fmt.Sprintf("%d instructors deleted successfully", deletedCount))
+		}
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/instructors")
+		return
+	}
+
+	// Check for special cases
+	if c.PostForm("no_changes") == "true" {
+		session.Set("error", "No changes to save")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/instructors")
+		return
+	}
+
+	if c.PostForm("no_selection") == "true" {
+		session.Set("error", "No instructors selected for deletion")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/instructors")
+		return
+	}
+
+	// Parse the instructors JSON data
+	instructorsJSON := c.PostForm("instructors")
+	if instructorsJSON == "" {
+		session.Set("error", "No instructor data provided")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/instructors")
+		return
+	}
+
+	var instructors []struct {
+		ID         string `json:"id"`
+		LastName   string `json:"lastName"`
+		FirstName  string `json:"firstName"`
+		Department string `json:"department"`
+		Status     string `json:"status"`
+	}
+
+	err = json.Unmarshal([]byte(instructorsJSON), &instructors)
+	if err != nil {
+		session.Set("error", "Invalid instructor data format")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/instructors")
+		return
+	}
+
+	// Update each instructor
+	updatedCount := 0
+	for _, instructor := range instructors {
+		instructorID, err := strconv.Atoi(instructor.ID)
+		if err != nil {
+			continue // Skip invalid IDs
+		}
+
+		err = scheduler.UpdateInstructor(instructorID, instructor.LastName, instructor.FirstName, instructor.Department, instructor.Status)
+		if err != nil {
+			session.Set("error", fmt.Sprintf("Error updating instructor %s %s: %v", instructor.FirstName, instructor.LastName, err))
+			session.Save()
+			c.Redirect(http.StatusFound, "/scheduler/instructors")
+			return
+		}
+		updatedCount++
+	}
+
+	session.Set("success", fmt.Sprintf("Successfully updated %d instructor(s)", updatedCount))
+	session.Save()
+	c.Redirect(http.StatusFound, "/scheduler/instructors")
+}
+
+// RenderAddInstructorPageGin renders the add instructor page
+func (scheduler *wmu_scheduler) RenderAddInstructorPageGin(c *gin.Context) {
+	user, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	departments, err := scheduler.GetAllDepartments()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "add_instructor", gin.H{
+			"Error": "Error loading departments: " + err.Error(),
+			"User":  user,
+		})
+		return
+	}
+
+	// Get error message from session
+	session := sessions.Default(c)
+	errorMessage := session.Get("error")
+	session.Delete("error")
+	session.Save()
+
+	data := gin.H{
+		"Departments": departments,
+		"User":        user,
+		"CSRFToken":   csrf.GetToken(c),
+		"Error":       errorMessage,
+	}
+
+	c.HTML(http.StatusOK, "add_instructor", data)
+}
+
+// AddInstructorGin handles adding a new instructor
+func (scheduler *wmu_scheduler) AddInstructorGin(c *gin.Context) {
+	_, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	session := sessions.Default(c)
+
+	// Get form data
+	lastName := c.PostForm("last_name")
+	firstName := c.PostForm("first_name")
+	department := c.PostForm("department")
+	status := c.PostForm("status")
+
+	// Validate required fields
+	if lastName == "" || firstName == "" || department == "" || status == "" {
+		session.Set("error", "All fields are required")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/add_instructor")
+		return
+	}
+
+	// Add the instructor
+	err = scheduler.AddInstructor(lastName, firstName, department, status)
+	if err != nil {
+		session.Set("error", "Error adding instructor: "+err.Error())
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/add_instructor")
+		return
+	}
+
+	session.Set("success", fmt.Sprintf("Instructor %s %s added successfully", firstName, lastName))
+	session.Save()
+	c.Redirect(http.StatusFound, "/scheduler/instructors")
+}
+
+// RenderAddUserPageGin renders the add user page
+func (scheduler *wmu_scheduler) RenderAddUserPageGin(c *gin.Context) {
+	user, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Check if user is administrator
+	if !user.Administrator {
+		c.HTML(http.StatusForbidden, "error.html", gin.H{
+			"Error": "Access denied. Administrator privileges required.",
+			"User":  user,
+		})
+		return
+	}
+
+	// Get any error or success messages from session
+	session := sessions.Default(c)
+	successMsg := session.Get("success")
+	errorMsg := session.Get("error")
+	session.Delete("success")
+	session.Delete("error")
+	session.Save()
+
+	data := gin.H{
+		"User":      user,
+		"CSRFToken": csrf.GetToken(c),
+	}
+
+	if successMsg != nil {
+		data["Success"] = successMsg
+	}
+	if errorMsg != nil {
+		data["Error"] = errorMsg
+	}
+
+	c.HTML(http.StatusOK, "add_user", data)
+}
+
+// AddUserGin handles adding a new user
+func (scheduler *wmu_scheduler) AddUserGin(c *gin.Context) {
+	user, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Check if user is administrator
+	if !user.Administrator {
+		session := sessions.Default(c)
+		session.Set("error", "Access denied. Administrator privileges required.")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/users")
+		return
+	}
+
+	session := sessions.Default(c)
+
+	// Get form data
+	username := c.PostForm("username")
+	email := c.PostForm("email")
+	password := c.PostForm("password")
+	administrator := c.PostForm("administrator") == "true"
+
+	// Validate required fields
+	if username == "" || email == "" || password == "" {
+		session.Set("error", "All fields are required")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/add_user")
+		return
+	}
+
+	// Add the user
+	err = scheduler.AddUser(username, email, password)
+	if err != nil {
+		session.Set("error", "Failed to add user: "+err.Error())
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/add_user")
+		return
+	}
+
+	// If administrator checkbox was checked, update the user to be an admin
+	if administrator {
+		// Get the newly created user to get their ID
+		newUser, err := scheduler.GetUserByUsername(username)
+		if err == nil && newUser != nil {
+			err = scheduler.UpdateUserByID(newUser.ID, username, email, false, true)
+			if err != nil {
+				session.Set("error", "User created but failed to set administrator privileges")
+				session.Save()
+				c.Redirect(http.StatusFound, "/scheduler/users")
+				return
+			}
+		}
+	}
+
+	session.Set("success", "User '"+username+"' added successfully")
+	session.Save()
+	c.Redirect(http.StatusFound, "/scheduler/users")
+}
+
+// ...existing code...

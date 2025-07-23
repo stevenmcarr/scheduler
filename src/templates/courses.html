@@ -72,6 +72,11 @@
             background-color: #e8f4f8;
         }
         
+        /* Modified row highlighting */
+        tr.modified {
+            background-color: #fff3cd !important;
+        }
+        
         /* Dropdown styling */
         select {
             width: 100%;
@@ -165,15 +170,6 @@
             color: #8B4513;
         }
         
-        .add-course-btn {
-            background-color: #28a745;
-            border-color: #28a745;
-        }
-        
-        .add-course-btn:hover {
-            background-color: #218838;
-        }
-        
         /* Filter section styling */
         .filter-section {
             background-color: #f8f9fa;
@@ -234,8 +230,19 @@
     <div class="content">
         <div class="page-header">
             <h1>Courses {{.ScheduleName}}</h1>
-            <button class="add-course-btn" type="button" onclick="window.location.href='/scheduler/add_course'">Add New Course</button>
         </div>
+        
+        {{if .Success}}
+        <div style="background-color: #d4edda; color: #155724; padding: 10px; margin-bottom: 20px; border: 1px solid #c3e6cb; border-radius: 4px;">
+            {{.Success}}
+        </div>
+        {{end}}
+        
+        {{if .Error}}
+        <div style="background-color: #f8d7da; color: #721c24; padding: 10px; margin-bottom: 20px; border: 1px solid #f5c6cb; border-radius: 4px;">
+            {{.Error}}
+        </div>
+        {{end}}
         
         <!-- Filter Section -->
         <div class="filter-section">
@@ -383,6 +390,7 @@
         </div>
         
         <div class="button-row">
+            <button type="button" onclick="window.location.href='/scheduler/add_course'" style="background-color:#8B4513; border-color:#8B4513;">+ Add New Course</button>
             <button type="button" onclick="saveAllChanges()">Save Changes</button>
         </div>
     </div>
@@ -498,7 +506,30 @@
         // Initialize filters when page loads
         document.addEventListener('DOMContentLoaded', function() {
             initializeFilters();
+            initializeChangeTracking();
         });
+        
+        // Track changes to form inputs
+        function initializeChangeTracking() {
+            const table = document.getElementById('courses-table');
+            const inputs = table.querySelectorAll('input, select');
+            
+            inputs.forEach(input => {
+                input.addEventListener('change', function() {
+                    const row = this.closest('tr');
+                    if (row) {
+                        row.classList.add('modified');
+                    }
+                });
+                
+                input.addEventListener('input', function() {
+                    const row = this.closest('tr');
+                    if (row) {
+                        row.classList.add('modified');
+                    }
+                });
+            });
+        }
         
         // Form submission functionality
         function saveAllChanges() {
@@ -572,21 +603,13 @@
                 }
             })
             .then(data => {
-                // Show success message
-                alert('Changes saved successfully!');
-                
-                // Reset button state
-                saveButton.textContent = originalText;
-                saveButton.disabled = false;
-                window.location.reload();
+                // Redirect to courses page to show session success message
+                window.location.href = '/scheduler/courses';
             })
             .catch(error => {
                 console.error('Error saving changes:', error);
-                alert('Error saving changes: ' + error.message);
-                
-                // Reset button state
-                saveButton.textContent = originalText;
-                saveButton.disabled = false;
+                // Redirect to courses page to show session error message  
+                window.location.href = '/scheduler/courses';
             });
         }
     </script>

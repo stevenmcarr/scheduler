@@ -102,6 +102,19 @@
     {{template "navbar" .}}
     <div class="content">
         <h1>Course Schedules</h1>
+        
+        {{if .Success}}
+        <div style="background-color: #d4edda; color: #155724; padding: 10px; margin-bottom: 20px; border: 1px solid #c3e6cb; border-radius: 4px;">
+            {{.Success}}
+        </div>
+        {{end}}
+        
+        {{if .Error}}
+        <div style="background-color: #f8d7da; color: #721c24; padding: 10px; margin-bottom: 20px; border: 1px solid #f5c6cb; border-radius: 4px;">
+            {{.Error}}
+        </div>
+        {{end}}
+        
         <div class="table-info">
             Showing {{len .Schedules}} schedule(s) - Scroll to see more
         </div>
@@ -139,7 +152,16 @@
                     if (checked) {
                         window.location.href = '/scheduler/courses?schedule_id=' + encodeURIComponent(checked.value);
                     } else {
-                        alert('Please select a schedule to list courses.');
+                        // Set session error message and reload
+                        fetch('/scheduler/set_error_message', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({message: 'Please select a schedule to list courses.'}),
+                        }).then(() => {
+                            window.location.reload();
+                        });
                     }
                 }
             </script>
@@ -152,7 +174,16 @@
                     if (checked) {
                         window.location.href = '/scheduler/delete?schedule_id=' + encodeURIComponent(checked.value);
                     } else {
-                        alert('Please select a schedule to delete.');
+                        // Set session error message and reload
+                        fetch('/scheduler/set_error_message', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({message: 'Please select a schedule to delete.'}),
+                        }).then(() => {
+                            window.location.reload();
+                        });
                     }
                 }
             </script>

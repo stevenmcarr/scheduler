@@ -167,17 +167,47 @@ func (scheduler *wmu_scheduler) router() *gin.Engine {
 	r.GET("/scheduler/timeslots", func(c *gin.Context) {
 		scheduler.RenderTimeslotsPageGin(c)
 	})
+
+	r.POST("/scheduler/timeslots", func(c *gin.Context) {
+		scheduler.SaveTimeslotsGin(c)
+	})
+
+	r.GET("/scheduler/add_timeslot", func(c *gin.Context) {
+		scheduler.RenderAddTimeslotPageGin(c)
+	})
+	r.POST("/scheduler/add_timeslot", func(c *gin.Context) {
+		scheduler.AddTimeslotGin(c)
+	})
+
 	r.GET("/scheduler/instructors", func(c *gin.Context) {
 		scheduler.RenderInstructorsPageGin(c)
+	})
+	r.POST("/scheduler/instructors", func(c *gin.Context) {
+		scheduler.SaveInstructorsGin(c)
 	})
 	r.GET("/scheduler/departments", func(c *gin.Context) {
 		scheduler.RenderDepartmentsPageGin(c)
 	})
+	r.POST("/scheduler/departments", func(c *gin.Context) {
+		scheduler.SaveDepartmentsGin(c)
+	})
+	r.GET("/scheduler/add_department", func(c *gin.Context) {
+		scheduler.RenderAddDepartmentPageGin(c)
+	})
+	r.POST("/scheduler/add_department", func(c *gin.Context) {
+		scheduler.AddDepartmentGin(c)
+	})
 	r.GET("/scheduler/prefixes", func(c *gin.Context) {
 		scheduler.RenderPrefixesPageGin(c)
 	})
+	r.POST("/scheduler/prefixes", func(c *gin.Context) {
+		scheduler.SavePrefixesGin(c)
+	})
 	r.GET("/scheduler/users", func(c *gin.Context) {
 		scheduler.RenderUsersPageGin(c)
+	})
+	r.POST("/scheduler/users", func(c *gin.Context) {
+		scheduler.SaveUsersGin(c)
 	})
 
 	r.GET("/scheduler/delete", func(c *gin.Context) {
@@ -191,6 +221,18 @@ func (scheduler *wmu_scheduler) router() *gin.Engine {
 		session.Save()
 		// Redirect to login page
 		c.Redirect(http.StatusFound, "/scheduler/login")
+	})
+
+	r.GET("/scheduler/add_instructor", func(c *gin.Context) {
+		scheduler.RenderAddInstructorPageGin(c)
+	})
+	r.POST("/scheduler/add_instructor", func(c *gin.Context) {
+		scheduler.AddInstructorGin(c)
+	})
+
+	// Session message routes
+	r.POST("/scheduler/set_error_message", func(c *gin.Context) {
+		scheduler.SetErrorMessageGin(c)
 	})
 
 	return r

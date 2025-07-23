@@ -1,0 +1,120 @@
+{{ define "add_timeslot" }}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Add Time Slot</title>
+    <style>
+        .form-container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .form-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 1em;
+        }
+        .form-table th {
+            background-color: #8B4513;
+            color: #fff;
+            padding: 12px;
+            text-align: left;
+        }
+        .form-table td {
+            padding: 12px;
+            border: 1px solid #ddd;
+        }
+        .form-table input, .form-table select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 20px;
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            color: white;
+        }
+        .btn-primary {
+            background-color: #8B4513;
+        }
+        .btn-secondary {
+            background-color: #6c757d;
+        }
+        .days-checkboxes {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+        .days-checkboxes label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            margin: 0;
+            cursor: pointer;
+        }
+        .days-checkboxes input[type="checkbox"] {
+            width: auto;
+            margin: 0;
+        }
+    </style>
+</head>
+<body>
+    {{ template "navbar" . }}
+
+    <div class="form-container">
+        <h2>Add New Time Slot</h2>
+        
+        {{if .Error}}
+        <div style="background-color: #f8d7da; color: #721c24; padding: 10px; margin-bottom: 20px; border: 1px solid #f5c6cb; border-radius: 4px;">
+            {{.Error}}
+        </div>
+        {{end}}
+
+        <form method="POST" action="/scheduler/add_timeslot">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            
+            <table class="form-table">
+                <tr>
+                    <th colspan="2">Time Slot Information</th>
+                </tr>
+                <tr>
+                    <td><label for="start_time">Start Time:</label></td>
+                    <td><input type="time" id="start_time" name="start_time" required></td>
+                </tr>
+                <tr>
+                    <td><label for="end_time">End Time:</label></td>
+                    <td><input type="time" id="end_time" name="end_time" required></td>
+                </tr>
+                <tr>
+                    <td><label for="days">Days:</label></td>
+                    <td>
+                        <div class="days-checkboxes">
+                            <label><input type="checkbox" name="M" value="1"> M</label>
+                            <label><input type="checkbox" name="T" value="1"> T</label>
+                            <label><input type="checkbox" name="W" value="1"> W</label>
+                            <label><input type="checkbox" name="R" value="1"> R</label>
+                            <label><input type="checkbox" name="F" value="1"> F</label>
+                        </div>
+                    </td>
+                </tr>
+            </table>
+            
+            <div class="buttons">
+                <button type="button" class="btn btn-secondary" onclick="window.location.href='/scheduler/timeslots'">Cancel</button>
+                <button type="submit" class="btn btn-primary">Add Time Slot</button>
+            </div>
+        </form>
+    </div>
+</body>
+</html>
+{{ end }}

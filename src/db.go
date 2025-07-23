@@ -417,7 +417,7 @@ type Room struct {
 }
 
 func (scheduler *wmu_scheduler) GetAllRooms() ([]Room, error) {
-	rows, err := scheduler.database.Query("SELECT id,building, room_number, capacity, computer_lab, dedicated_lab FROM rooms")
+	rows, err := scheduler.database.Query("SELECT id, building, room_number, capacity, computer_lab, dedicated_lab FROM rooms ORDER BY building, room_number")
 	if err != nil {
 		return nil, err
 	}
@@ -491,6 +491,7 @@ type TimeSlot struct {
 	Wednesday bool
 	Thursday  bool
 	Friday    bool
+	Duration  string // New field for duration
 }
 
 // GetAllTimeSlots retrieves all time slots from the database
@@ -526,6 +527,36 @@ func (scheduler *wmu_scheduler) GetAllTimeSlots() ([]TimeSlot, error) {
 		if timeslot.Friday {
 			timeslot.Days += "F"
 		}
+		// Calculate duration in hours and minutes
+		startTimeParts := strings.Split(timeslot.StartTime, ":")
+		endTimeParts := strings.Split(timeslot.EndTime, ":")
+		var err1, err2 error
+		var startHours, startMinutes, endHours, endMinutes int
+		if len(startTimeParts) >= 2 {
+			startHours, err1 = strconv.Atoi(startTimeParts[0])
+			startMinutes, err1 = strconv.Atoi(startTimeParts[1])
+		} else {
+			err1 = fmt.Errorf("invalid start time format")
+			return nil, err1
+		}
+		if len(endTimeParts) >= 2 {
+			endHours, err2 = strconv.Atoi(endTimeParts[0])
+			endMinutes, err2 = strconv.Atoi(endTimeParts[1])
+		} else {
+			err2 = fmt.Errorf("invalid end time format")
+			return nil, err2
+		}
+		durationHours := endHours - startHours
+		if endMinutes < startMinutes {
+			durationHours--
+			endMinutes += 60
+		}
+		durationMinutes := endMinutes - startMinutes
+		if durationHours > 0 {
+			timeslot.Duration = fmt.Sprintf("%dh%dm", durationHours, durationMinutes)
+		} else {
+			timeslot.Duration = fmt.Sprintf("%dm", durationMinutes)
+		}
 		timeslots = append(timeslots, timeslot)
 	}
 
@@ -546,7 +577,7 @@ func (scheduler *wmu_scheduler) GetAllInstructors() ([]Instructor, error) {
 		SELECT i.id, i.last_name, i.first_name, d.name, i.status
 		FROM instructors i
 		JOIN departments d ON i.department_id = d.id
-		ORDER BY i.last_name, i.first_name
+		ORDER BY d.name, i.last_name, i.first_name
 	`
 	rows, err := scheduler.database.Query(query)
 	if err != nil {
@@ -561,6 +592,7 @@ func (scheduler *wmu_scheduler) GetAllInstructors() ([]Instructor, error) {
 		if err != nil {
 			return nil, err
 		}
+		instructor.Status = NormalizeStatus(instructor.Status) // Normalize status
 		instructors = append(instructors, instructor)
 	}
 
@@ -568,13 +600,20 @@ func (scheduler *wmu_scheduler) GetAllInstructors() ([]Instructor, error) {
 }
 
 type Department struct {
-	ID   int
-	Name string
+	ID       int
+	Name     string
+	Prefixes string // Comma-separated list of prefixes
 }
 
 // GetAllDepartments retrieves all departments from the database
 func (scheduler *wmu_scheduler) GetAllDepartments() ([]Department, error) {
-	query := "SELECT id, name FROM departments ORDER BY name"
+	query := `
+		SELECT d.id, d.name, COALESCE(GROUP_CONCAT(p.prefix ORDER BY p.prefix SEPARATOR ', '), '') as prefixes
+		FROM departments d
+		LEFT JOIN prefixes p ON p.department_id = d.id
+		GROUP BY d.id, d.name
+		ORDER BY d.name
+	`
 	rows, err := scheduler.database.Query(query)
 	if err != nil {
 		return nil, err
@@ -584,7 +623,7 @@ func (scheduler *wmu_scheduler) GetAllDepartments() ([]Department, error) {
 	var departments []Department
 	for rows.Next() {
 		var department Department
-		err := rows.Scan(&department.ID, &department.Name)
+		err := rows.Scan(&department.ID, &department.Name, &department.Prefixes)
 		if err != nil {
 			return nil, err
 		}
@@ -933,7 +972,7 @@ func (scheduler *wmu_scheduler) GetScheduleName(scheduleID int) (string, error) 
 }
 
 // UpdateRoom updates a room's information
-func (scheduler *wmu_scheduler) UpdateRoom(roomID int, building string, roomNumber int, capacity int, computerLab bool, dedicatedLab bool) error {
+func (scheduler *wmu_scheduler) UpdateRoom(roomID int, building string, roomNumber string, capacity int, computerLab bool, dedicatedLab bool) error {
 	query := `UPDATE rooms SET building = ?, room_number = ?, capacity = ?, computer_lab = ?, dedicated_lab = ? WHERE id = ?`
 	_, err := scheduler.database.Exec(query, building, roomNumber, capacity, computerLab, dedicatedLab, roomID)
 	return err
@@ -950,5 +989,183 @@ func (scheduler *wmu_scheduler) DeleteRoom(roomID int) error {
 func (scheduler *wmu_scheduler) AddRoom(building string, roomNumber string, capacity int, computerLab bool, dedicatedLab bool) error {
 	query := `INSERT INTO rooms (building, room_number, capacity, computer_lab, dedicated_lab) VALUES (?, ?, ?, ?, ?)`
 	_, err := scheduler.database.Exec(query, building, roomNumber, capacity, computerLab, dedicatedLab)
+	return err
+}
+
+// UpdateTimeslot updates a timeslot's information
+func (scheduler *wmu_scheduler) UpdateTimeslot(timeslotID int, startTime string, endTime string, days string) error {
+	var monday, tuesday, wednesday, thursday, friday bool
+	for _, d := range days {
+		switch d {
+		case 'M':
+			monday = true
+		case 'T':
+			tuesday = true
+		case 'W':
+			wednesday = true
+		case 'R':
+			thursday = true
+		case 'F':
+			friday = true
+		}
+	}
+	query := `UPDATE time_slots SET start_time = ?, end_time = ?, M = ?, T = ?, W = ?, R = ?, F = ? WHERE id = ?`
+	_, err := scheduler.database.Exec(query, startTime, endTime, monday, tuesday, wednesday, thursday, friday, timeslotID)
+	return err
+}
+
+// AddTimeslot adds a new timeslot
+func (scheduler *wmu_scheduler) AddTimeslot(startTime string, endTime string, days string) error {
+	var monday, tuesday, wednesday, thursday, friday bool
+	for _, d := range days {
+		switch d {
+		case 'M':
+			monday = true
+		case 'T':
+			tuesday = true
+		case 'W':
+			wednesday = true
+		case 'R':
+			thursday = true
+		case 'F':
+			friday = true
+		}
+	}
+	query := `INSERT INTO time_slots (start_time, end_time, M, T, W, R, F) VALUES (?, ?, ?, ?, ?, ?, ?)`
+	_, err := scheduler.database.Exec(query, startTime, endTime, monday, tuesday, wednesday, thursday, friday)
+	return err
+}
+
+func (scheduler *wmu_scheduler) AddTimeslotWithDays(startTime, endTime string, Monday, Tuesday, Wednesday, Thursday, Friday bool) error {
+	query := `INSERT INTO time_slots (start_time, end_time, M, T, W, R, F) VALUES (?, ?, ?, ?, ?, ?, ?)`
+	_, err := scheduler.database.Exec(query, startTime, endTime, Monday, Tuesday, Wednesday, Thursday, Friday)
+	return err
+}
+
+// DeleteTimeslot deletes a timeslot by ID
+func (scheduler *wmu_scheduler) DeleteTimeslot(timeslotID int) error {
+	query := `DELETE FROM time_slots WHERE id = ?`
+	_, err := scheduler.database.Exec(query, timeslotID)
+	return err
+}
+
+func NormalizeStatus(status string) string {
+	lower := strings.ToLower(strings.TrimSpace(status))
+	switch lower {
+	case "full time":
+		return "Full Time"
+	case "part time":
+		return "Part Time"
+	default:
+		return status
+	}
+}
+
+// UpdateInstructor updates an instructor's information
+func (scheduler *wmu_scheduler) UpdateInstructor(instructorID int, lastName string, firstName string, department string, status string) error {
+	// First, get the department ID from the department name
+	var departmentID int
+	err := scheduler.database.QueryRow("SELECT id FROM departments WHERE name = ?", department).Scan(&departmentID)
+	if err != nil {
+		return fmt.Errorf("department not found: %v", err)
+	}
+
+	query := `UPDATE instructors SET last_name = ?, first_name = ?, department_id = ?, status = ? WHERE id = ?`
+	_, err = scheduler.database.Exec(query, lastName, firstName, departmentID, NormalizeStatus(status), instructorID)
+	return err
+}
+
+// AddInstructor adds a new instructor
+func (scheduler *wmu_scheduler) AddInstructor(lastName string, firstName string, department string, status string) error {
+	// First, get the department ID from the department name
+	var departmentID int
+	err := scheduler.database.QueryRow("SELECT id FROM departments WHERE name = ?", department).Scan(&departmentID)
+	if err != nil {
+		return fmt.Errorf("department not found: %v", err)
+	}
+
+	query := `INSERT INTO instructors (last_name, first_name, department_id, status) VALUES (?, ?, ?, ?)`
+	_, err = scheduler.database.Exec(query, lastName, firstName, departmentID, NormalizeStatus(status))
+	return err
+}
+
+// DeleteInstructor deletes an instructor by ID
+func (scheduler *wmu_scheduler) DeleteInstructor(instructorID int) error {
+	query := `DELETE FROM instructors WHERE id = ?`
+	_, err := scheduler.database.Exec(query, instructorID)
+	return err
+}
+
+// UpdateDepartment updates a department's name
+func (scheduler *wmu_scheduler) UpdateDepartment(departmentID int, name string) error {
+	query := `UPDATE departments SET name = ? WHERE id = ?`
+	_, err := scheduler.database.Exec(query, name, departmentID)
+	return err
+}
+
+// AddDepartment adds a new department
+func (scheduler *wmu_scheduler) AddDepartment(name string) error {
+	query := `INSERT INTO departments (name) VALUES (?)`
+	_, err := scheduler.database.Exec(query, name)
+	return err
+}
+
+// DeleteDepartment deletes a department by ID
+func (scheduler *wmu_scheduler) DeleteDepartment(departmentID int) error {
+	query := `DELETE FROM departments WHERE id = ?`
+	_, err := scheduler.database.Exec(query, departmentID)
+	return err
+}
+
+// UpdatePrefix updates a prefix's information
+func (scheduler *wmu_scheduler) UpdatePrefix(prefixID int, prefixCode string, departmentName string) error {
+	// First, get the department ID from the department name
+	var departmentID int
+	err := scheduler.database.QueryRow("SELECT id FROM departments WHERE name = ?", departmentName).Scan(&departmentID)
+	if err != nil {
+		return fmt.Errorf("department not found: %v", err)
+	}
+
+	query := `UPDATE prefixes SET prefix = ?, department_id = ? WHERE id = ?`
+	_, err = scheduler.database.Exec(query, prefixCode, departmentID, prefixID)
+	return err
+}
+
+// AddPrefix adds a new prefix
+func (scheduler *wmu_scheduler) AddPrefix(prefixCode string, departmentName string) error {
+	// First, get the department ID from the department name
+	var departmentID int
+	err := scheduler.database.QueryRow("SELECT id FROM departments WHERE name = ?", departmentName).Scan(&departmentID)
+	if err != nil {
+		return fmt.Errorf("department not found: %v", err)
+	}
+
+	query := `INSERT INTO prefixes (prefix, department_id) VALUES (?, ?)`
+	_, err = scheduler.database.Exec(query, prefixCode, departmentID)
+	return err
+}
+
+// DeletePrefix deletes a prefix by ID
+func (scheduler *wmu_scheduler) DeletePrefix(prefixID int) error {
+	query := `DELETE FROM prefixes WHERE id = ?`
+	_, err := scheduler.database.Exec(query, prefixID)
+	return err
+}
+
+// UpdateUserByID updates a user's information by ID
+func (scheduler *wmu_scheduler) UpdateUserByID(userID int, username string, email string, isLoggedIn bool, administrator bool) error {
+	if !ValidateEmail(email) {
+		return errors.New("invalid email address")
+	}
+
+	query := `UPDATE users SET username = ?, email = ?, is_logged_in = ?, administrator = ? WHERE id = ?`
+	_, err := scheduler.database.Exec(query, username, email, isLoggedIn, administrator, userID)
+	return err
+}
+
+// DeleteUserByID deletes a user by ID
+func (scheduler *wmu_scheduler) DeleteUserByID(userID int) error {
+	query := `DELETE FROM users WHERE id = ?`
+	_, err := scheduler.database.Exec(query, userID)
 	return err
 }

@@ -8,6 +8,19 @@
 <body>
     {{template "navbar" .}}
     <h1>Add New Course</h1>
+    
+    {{if .Success}}
+    <div style="background-color: #d4edda; color: #155724; padding: 10px; margin-bottom: 20px; border: 1px solid #c3e6cb; border-radius: 4px;">
+        {{.Success}}
+    </div>
+    {{end}}
+    
+    {{if .Error}}
+    <div style="background-color: #f8d7da; color: #721c24; padding: 10px; margin-bottom: 20px; border: 1px solid #f5c6cb; border-radius: 4px;">
+        {{.Error}}
+    </div>
+    {{end}}
+    
     <form method="POST" action="/scheduler/add_course">
         <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
         <style>
@@ -128,7 +141,8 @@
                         if (result.success) {
                             window.location.href = '/scheduler/courses';
                         } else {
-                            alert(result.error || 'An error occurred while adding the course.');
+                            // Reload page to show session error message
+                            window.location.reload();
                         }
                     })
                     .catch(() => {

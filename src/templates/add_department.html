@@ -1,0 +1,57 @@
+{{define "add_department"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Add Department - WMU Course Scheduler</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+        .content { margin: 24px; }
+        .form-container { max-width: 600px; margin: 0 auto; }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .form-group input { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+        .button-row { display: flex; gap: 12px; justify-content: flex-end; margin-top: 30px; }
+        button { padding: 10px 20px; font-size: 14px; cursor: pointer; border: none; border-radius: 4px; }
+        .save-btn { background-color: #8B4513; color: white; }
+        .save-btn:hover { background-color: #654321; }
+        .cancel-btn { background-color: #6c757d; color: white; }
+        .cancel-btn:hover { background-color: #545b62; }
+    </style>
+</head>
+<body>
+    {{template "navbar" .}}
+    <div class="content">
+        <div class="form-container">
+            <h1>Add New Department</h1>
+            
+            {{if .Success}}
+            <div style="background-color: #d4edda; color: #155724; padding: 10px; margin-bottom: 20px; border: 1px solid #c3e6cb; border-radius: 4px;">
+                {{.Success}}
+            </div>
+            {{end}}
+            
+            {{if .Error}}
+            <div style="background-color: #f8d7da; color: #721c24; padding: 10px; margin-bottom: 20px; border: 1px solid #f5c6cb; border-radius: 4px;">
+                {{.Error}}
+            </div>
+            {{end}}
+            
+            <form method="POST" action="/scheduler/add_department">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                
+                <div class="form-group">
+                    <label for="name">Department Name:</label>
+                    <input type="text" id="name" name="name" required placeholder="Enter department name" />
+                </div>
+                
+                <div class="button-row">
+                    <button type="button" class="cancel-btn" onclick="window.location.href='/scheduler/departments'">Cancel</button>
+                    <button type="submit" class="save-btn">Add Department</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</body>
+</html>
+{{end}}
