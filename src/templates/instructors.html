@@ -45,6 +45,16 @@
             font-size: 14px;
         }
         
+        th.sortable {
+            cursor: pointer;
+            user-select: none;
+        }
+        th.sortable:after {
+            content: ' ⇅';
+            font-size: 0.8em;
+            color: #ccc;
+        }
+        
         /* Column widths */
         th:nth-child(1), td:nth-child(1) { width: 40px; } /* Checkbox */
         th:nth-child(2), td:nth-child(2) { width: 150px; } /* Last Name */
@@ -161,10 +171,10 @@
                         <th style="width: 40px;">
                             <input type="checkbox" id="selectAll" onchange="toggleSelectAll()" />
                         </th>
-                        <th>Last Name</th>
-                        <th>First Name</th>
-                        <th>Department</th>
-                        <th>Status</th>
+                        <th class="sortable" onclick="sortTable(1)">Last Name</th>
+                        <th class="sortable" onclick="sortTable(2)">First Name</th>
+                        <th class="sortable" onclick="sortTable(3)">Department</th>
+                        <th class="sortable" onclick="sortTable(4)">Status</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -334,6 +344,43 @@
                 // Even on error, redirect to show session error message
                 window.location.href = '/scheduler/instructors';
             });
+        }
+        
+        // Sorting function
+        function sortTable(colIdx) {
+            const table = document.getElementById('instructors-table');
+            const tbody = table.tBodies[0];
+            const rows = Array.from(tbody.rows);
+            let asc = table.getAttribute('data-sort-col') != colIdx || table.getAttribute('data-sort-dir') !== 'asc';
+            
+            rows.sort((a, b) => {
+                let aVal, bVal;
+                
+                if (colIdx === 3) { // Department column - get select option text
+                    const aSelect = a.cells[colIdx].querySelector('select');
+                    const bSelect = b.cells[colIdx].querySelector('select');
+                    aVal = aSelect ? aSelect.options[aSelect.selectedIndex].text : '';
+                    bVal = bSelect ? bSelect.options[bSelect.selectedIndex].text : '';
+                } else if (colIdx === 4) { // Status column - get select option text
+                    const aSelect = a.cells[colIdx].querySelector('select');
+                    const bSelect = b.cells[colIdx].querySelector('select');
+                    aVal = aSelect ? aSelect.options[aSelect.selectedIndex].text : '';
+                    bVal = bSelect ? bSelect.options[bSelect.selectedIndex].text : '';
+                } else { // Last Name and First Name columns - get input values
+                    const aInput = a.cells[colIdx].querySelector('input');
+                    const bInput = b.cells[colIdx].querySelector('input');
+                    aVal = aInput ? aInput.value : '';
+                    bVal = bInput ? bInput.value : '';
+                }
+                
+                if (aVal < bVal) return asc ? -1 : 1;
+                if (aVal > bVal) return asc ? 1 : -1;
+                return 0;
+            });
+            
+            rows.forEach(row => tbody.appendChild(row));
+            table.setAttribute('data-sort-col', colIdx);
+            table.setAttribute('data-sort-dir', asc ? 'asc' : 'desc');
         }
     </script>
 </body>

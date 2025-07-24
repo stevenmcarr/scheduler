@@ -6,7 +6,7 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
-	"strconv
+	"strconv"
 	"strings"
 
 	"encoding/json"
@@ -196,6 +196,33 @@ func (scheduler *wmu_scheduler) SignupUserGin(c *gin.Context) {
 	c.Redirect(http.StatusFound, "/scheduler/login?success=Account created successfully")
 }
 
+func getIntFromInterface(val interface{}) int {
+	switch v := val.(type) {
+	case int:
+		return v
+	case float64:
+		return int(v)
+	case string:
+		i, err := strconv.Atoi(strings.TrimSpace(v))
+		if err == nil {
+			return i
+		}
+	}
+	return 0
+}
+
+func getStringFromInterface(val interface{}) string {
+	switch v := val.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case int:
+		return strconv.Itoa(v)
+	case float64:
+		return strconv.Itoa(int(v))
+	}
+	return ""
+}
+
 func (scheduler *wmu_scheduler) RenderCoursesPageGin(c *gin.Context) {
 	user, err := scheduler.getCurrentUser(c)
 	if err != nil {
@@ -290,6 +317,7 @@ func (scheduler *wmu_scheduler) RenderCoursesPageGin(c *gin.Context) {
 	data := gin.H{
 		"User":         user,
 		"ScheduleName": scheduleName,
+		"ScheduleID":   id,
 		"Courses":      courses,
 		"Instructors":  instructors,
 		"Rooms":        rooms,
@@ -314,6 +342,12 @@ func (scheduler *wmu_scheduler) SaveCoursesGin(c *gin.Context) {
 	if err != nil {
 		log.Printf("Authentication error: %v", err)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
+
+	action := c.PostForm("action")
+	if action == "export" {
+		scheduler.ExportCoursesToExcel(c)
 		return
 	}
 
@@ -2203,4 +2237,878 @@ func (scheduler *wmu_scheduler) AddUserGin(c *gin.Context) {
 	c.Redirect(http.StatusFound, "/scheduler/users")
 }
 
-// ...existing code...
+// AddRoomGin handles adding a new room
+func (scheduler *wmu_scheduler) AddRoomGin(c *gin.Context) {
+	_, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	session := sessions.Default(c)
+
+	// Get form data
+	building := c.PostForm("building")
+	roomNumber := c.PostForm("room_number")
+	capacityStr := c.PostForm("capacity")
+	computerLab := c.PostForm("computer_lab") == "on"
+	dedicatedLab := c.PostForm("dedicated_lab") == "on"
+
+	// Validate required fields
+	if building == "" || roomNumber == "" || capacityStr == "" {
+		session.Set("error", "Building, room number, and capacity are required")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/add_room")
+		return
+	}
+
+	capacity, err := strconv.Atoi(capacityStr)
+	if err != nil || capacity < 0 {
+		session.Set("error", "Invalid capacity value")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/add_room")
+		return
+	}
+
+	// Add the room
+	err = scheduler.AddRoom(building, roomNumber, capacity, computerLab, dedicatedLab)
+	if err != nil {
+		session.Set("error", "Error adding room: "+err.Error())
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/add_room")
+		return
+	}
+
+	session.Set("success", fmt.Sprintf("Room %s %s added successfully", building, roomNumber))
+	session.Save()
+	c.Redirect(http.StatusFound, "/scheduler/rooms")
+}
+
+// SaveDepartmentsGin handles saving department changes and bulk deletion
+func (scheduler *wmu_scheduler) SaveDepartmentsGin(c *gin.Context) {
+	user, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Check if user is administrator
+	if !user.Administrator {
+		session := sessions.Default(c)
+		session.Set("error", "Access denied. Administrator privileges required.")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/departments")
+		return
+	}
+
+	session := sessions.Default(c)
+
+	// Check if this is a delete operation
+	action := c.PostForm("action")
+	if action == "delete" {
+		// Handle department deletion
+		departmentIDs := c.PostFormArray("department_ids[]")
+		if len(departmentIDs) == 0 {
+			session.Set("error", "No departments selected for deletion")
+			session.Save()
+			c.Redirect(http.StatusFound, "/scheduler/departments")
+			return
+		}
+
+		var errors []string
+		deletedCount := 0
+
+		for _, departmentIDStr := range departmentIDs {
+			departmentID, err := strconv.Atoi(departmentIDStr)
+			if err != nil {
+				errors = append(errors, fmt.Sprintf("Invalid department ID: %s", departmentIDStr))
+				continue
+			}
+
+			err = scheduler.DeleteDepartment(departmentID)
+			if err != nil {
+				errors = append(errors, fmt.Sprintf("Failed to delete department ID %d: %v", departmentID, err))
+				continue
+			}
+			deletedCount++
+		}
+
+		if len(errors) > 0 {
+			session.Set("error", fmt.Sprintf("%d departments deleted, %d errors occurred", deletedCount, len(errors)))
+		} else {
+			session.Set("success", fmt.Sprintf("%d departments deleted successfully", deletedCount))
+		}
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/departments")
+		return
+	}
+
+	// Check for special cases
+	if c.PostForm("no_changes") == "true" {
+		session.Set("error", "No changes to save")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/departments")
+		return
+	}
+
+	if c.PostForm("no_selection") == "true" {
+		session.Set("error", "No departments selected for deletion")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/departments")
+		return
+	}
+
+	// Get the departments JSON data
+	departmentsJSON := c.PostForm("departments")
+	if departmentsJSON == "" {
+		session.Set("error", "No department data provided")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/departments")
+		return
+	}
+
+	// Parse the JSON data
+	var departments []map[string]interface{}
+	err = json.Unmarshal([]byte(departmentsJSON), &departments)
+	if err != nil {
+		session.Set("error", "Invalid department data format")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/departments")
+		return
+	}
+
+	// Update each department
+	successCount := 0
+	errorCount := 0
+
+	for _, departmentData := range departments {
+		id := getIntFromInterface(departmentData["id"])
+		name := getStringFromInterface(departmentData["name"])
+
+		if id <= 0 || name == "" {
+			errorCount++
+			continue
+		}
+
+		err = scheduler.UpdateDepartment(id, name)
+		if err != nil {
+			errorCount++
+			continue
+		}
+		successCount++
+	}
+
+	// Set appropriate success/error message
+	if errorCount > 0 {
+		session.Set("error", fmt.Sprintf("%d departments updated, %d errors occurred", successCount, errorCount))
+	} else {
+		session.Set("success", fmt.Sprintf("%d departments updated successfully", successCount))
+	}
+	session.Save()
+	c.Redirect(http.StatusFound, "/scheduler/departments")
+}
+
+// RenderAddDepartmentPageGin renders the add department page
+func (scheduler *wmu_scheduler) RenderAddDepartmentPageGin(c *gin.Context) {
+	user, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Check if user is administrator
+	if !user.Administrator {
+		c.HTML(http.StatusForbidden, "error.html", gin.H{
+			"Error": "Access denied. Administrator privileges required.",
+			"User":  user,
+		})
+		return
+	}
+
+	// Get any error or success messages from session
+	session := sessions.Default(c)
+	errorMsg := session.Get("error")
+	session.Delete("error")
+	session.Save()
+
+	data := gin.H{
+		"User":      user,
+		"CSRFToken": csrf.GetToken(c),
+	}
+
+	if errorMsg != nil {
+		data["Error"] = errorMsg
+	}
+
+	c.HTML(http.StatusOK, "add_department", data)
+}
+
+// AddDepartmentGin handles adding a new department
+func (scheduler *wmu_scheduler) AddDepartmentGin(c *gin.Context) {
+	user, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Check if user is administrator
+	if !user.Administrator {
+		session := sessions.Default(c)
+		session.Set("error", "Access denied. Administrator privileges required.")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/departments")
+		return
+	}
+
+	session := sessions.Default(c)
+
+	// Get form data
+	name := c.PostForm("name")
+
+	// Validate required fields
+	if name == "" {
+		session.Set("error", "Department name is required")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/add_department")
+		return
+	}
+
+	// Add the department
+	err = scheduler.AddDepartment(name)
+	if err != nil {
+		session.Set("error", "Error adding department: "+err.Error())
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/add_department")
+		return
+	}
+
+	session.Set("success", fmt.Sprintf("Department '%s' added successfully", name))
+	session.Save()
+	c.Redirect(http.StatusFound, "/scheduler/departments")
+}
+
+// SavePrefixesGin handles saving prefix changes and bulk deletion
+func (scheduler *wmu_scheduler) SavePrefixesGin(c *gin.Context) {
+	user, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Check if user is administrator
+	if !user.Administrator {
+		session := sessions.Default(c)
+		session.Set("error", "Access denied. Administrator privileges required.")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/prefixes")
+		return
+	}
+
+	session := sessions.Default(c)
+
+	// Check if this is a delete operation
+	action := c.PostForm("action")
+	if action == "delete" {
+		// Handle prefix deletion
+		prefixIDs := c.PostFormArray("prefix_ids[]")
+		if len(prefixIDs) == 0 {
+			session.Set("error", "No prefixes selected for deletion")
+			session.Save()
+			c.Redirect(http.StatusFound, "/scheduler/prefixes")
+			return
+		}
+
+		var errors []string
+		deletedCount := 0
+
+		for _, prefixIDStr := range prefixIDs {
+			prefixID, err := strconv.Atoi(prefixIDStr)
+			if err != nil {
+				errors = append(errors, fmt.Sprintf("Invalid prefix ID: %s", prefixIDStr))
+				continue
+			}
+
+			err = scheduler.DeletePrefix(prefixID)
+			if err != nil {
+				errors = append(errors, fmt.Sprintf("Failed to delete prefix ID %d: %v", prefixID, err))
+				continue
+			}
+			deletedCount++
+		}
+
+		if len(errors) > 0 {
+			session.Set("error", fmt.Sprintf("%d prefixes deleted, %d errors occurred", deletedCount, len(errors)))
+		} else {
+			session.Set("success", fmt.Sprintf("%d prefixes deleted successfully", deletedCount))
+		}
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/prefixes")
+		return
+	}
+
+	// Check for special cases
+	if c.PostForm("no_changes") == "true" {
+		session.Set("error", "No changes to save")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/prefixes")
+		return
+	}
+
+	if c.PostForm("no_selection") == "true" {
+		session.Set("error", "No prefixes selected for deletion")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/prefixes")
+		return
+	}
+
+	// Get the prefixes JSON data
+	prefixesJSON := c.PostForm("prefixes")
+	if prefixesJSON == "" {
+		session.Set("error", "No prefix data provided")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/prefixes")
+		return
+	}
+
+	// Parse the JSON data
+	var prefixes []map[string]interface{}
+	err = json.Unmarshal([]byte(prefixesJSON), &prefixes)
+	if err != nil {
+		session.Set("error", "Invalid prefix data format")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/prefixes")
+		return
+	}
+
+	// Update each prefix
+	successCount := 0
+	errorCount := 0
+
+	for _, prefixData := range prefixes {
+		id := getIntFromInterface(prefixData["id"])
+		prefix := getStringFromInterface(prefixData["prefix"])
+		departmentID := getIntFromInterface(prefixData["department_id"])
+
+		if id <= 0 || prefix == "" || departmentID <= 0 {
+			errorCount++
+			continue
+		}
+
+		// Get department name from ID
+		departments, err := scheduler.GetAllDepartments()
+		if err != nil {
+			errorCount++
+			continue
+		}
+
+		var departmentName string
+		for _, dept := range departments {
+			if dept.ID == departmentID {
+				departmentName = dept.Name
+				break
+			}
+		}
+
+		if departmentName == "" {
+			errorCount++
+			continue
+		}
+
+		err = scheduler.UpdatePrefix(id, prefix, departmentName)
+		if err != nil {
+			errorCount++
+			continue
+		}
+		successCount++
+	}
+
+	// Set appropriate success/error message
+	if errorCount > 0 {
+		session.Set("error", fmt.Sprintf("%d prefixes updated, %d errors occurred", successCount, errorCount))
+	} else {
+		session.Set("success", fmt.Sprintf("%d prefixes updated successfully", successCount))
+	}
+	session.Save()
+	c.Redirect(http.StatusFound, "/scheduler/prefixes")
+}
+
+// SaveUsersGin handles saving user changes and bulk deletion
+func (scheduler *wmu_scheduler) SaveUsersGin(c *gin.Context) {
+	user, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Check if user is administrator
+	if !user.Administrator {
+		session := sessions.Default(c)
+		session.Set("error", "Access denied. Administrator privileges required.")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/users")
+		return
+	}
+
+	session := sessions.Default(c)
+
+	// Check if this is a delete operation
+	action := c.PostForm("action")
+	if action == "delete" {
+		// Handle user deletion
+		userIDs := c.PostFormArray("user_ids[]")
+		if len(userIDs) == 0 {
+			session.Set("error", "No users selected for deletion")
+			session.Save()
+			c.Redirect(http.StatusFound, "/scheduler/users")
+			return
+		}
+
+		var errors []string
+		deletedCount := 0
+
+		for _, userIDStr := range userIDs {
+			userID, err := strconv.Atoi(userIDStr)
+			if err != nil {
+				errors = append(errors, fmt.Sprintf("Invalid user ID: %s", userIDStr))
+				continue
+			}
+
+			// Don't allow deleting the current user
+			if userID == user.ID {
+				errors = append(errors, "Cannot delete your own account")
+				continue
+			}
+
+			err = scheduler.DeleteUserByID(userID)
+			if err != nil {
+				errors = append(errors, fmt.Sprintf("Failed to delete user ID %d: %v", userID, err))
+				continue
+			}
+			deletedCount++
+		}
+
+		if len(errors) > 0 {
+			session.Set("error", fmt.Sprintf("%d users deleted, %d errors occurred", deletedCount, len(errors)))
+		} else {
+			session.Set("success", fmt.Sprintf("%d users deleted successfully", deletedCount))
+		}
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/users")
+		return
+	}
+
+	// Check for special cases
+	if c.PostForm("no_changes") == "true" {
+		session.Set("error", "No changes to save")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/users")
+		return
+	}
+
+	if c.PostForm("no_selection") == "true" {
+		session.Set("error", "No users selected for deletion")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/users")
+		return
+	}
+
+	// Get the users JSON data
+	usersJSON := c.PostForm("users")
+	if usersJSON == "" {
+		session.Set("error", "No user data provided")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/users")
+		return
+	}
+
+	// Parse the JSON data
+	var users []map[string]interface{}
+	err = json.Unmarshal([]byte(usersJSON), &users)
+	if err != nil {
+		session.Set("error", "Invalid user data format")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/users")
+		return
+	}
+
+	// Update each user
+	successCount := 0
+	errorCount := 0
+
+	for _, userData := range users {
+		id := getIntFromInterface(userData["id"])
+		username := getStringFromInterface(userData["username"])
+		email := getStringFromInterface(userData["email"])
+		administrator := userData["administrator"] == true || userData["administrator"] == "true"
+
+		if id <= 0 || username == "" || email == "" {
+			errorCount++
+			continue
+		}
+
+		err = scheduler.UpdateUserByID(id, username, email, false, administrator)
+		if err != nil {
+			errorCount++
+			continue
+		}
+		successCount++
+	}
+
+	// Set appropriate success/error message
+	if errorCount > 0 {
+		session.Set("error", fmt.Sprintf("%d users updated, %d errors occurred", successCount, errorCount))
+	} else {
+		session.Set("success", fmt.Sprintf("%d users updated successfully", successCount))
+	}
+	session.Save()
+	c.Redirect(http.StatusFound, "/scheduler/users")
+}
+
+// SetErrorMessageGin handles setting error messages in session
+func (scheduler *wmu_scheduler) SetErrorMessageGin(c *gin.Context) {
+	message := c.PostForm("message")
+	if message != "" {
+		session := sessions.Default(c)
+		session.Set("error", message)
+		session.Save()
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "success"})
+}
+
+// ExportCoursesToExcel exports all courses for a given schedule to Excel format
+func (scheduler *wmu_scheduler) ExportCoursesToExcel(c *gin.Context) {
+	// Get schedule ID from URL parameter
+	scheduleID := c.PostForm("schedule_id")
+	if scheduleID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Schedule ID is required"})
+		return
+	}
+
+	scheduleIDInt, err := strconv.Atoi(scheduleID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid schedule ID"})
+		return
+	}
+
+	// Get schedule information
+	schedule, err := scheduler.GetScheduleByID(scheduleIDInt)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve schedule"})
+		return
+	}
+
+	// Get courses for the schedule
+	courses, err := scheduler.GetActiveCoursesForSchedule(scheduleIDInt)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve courses"})
+		return
+	}
+
+	// Get lookup data for references
+	instructors, err := scheduler.GetAllInstructors()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve instructors"})
+		return
+	}
+	instructorMap := make(map[int]Instructor)
+	for _, instructor := range instructors {
+		instructorMap[instructor.ID] = instructor
+	}
+
+	timeslots, err := scheduler.GetAllTimeSlots()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve timeslots"})
+		return
+	}
+	timeslotMap := make(map[int]TimeSlot)
+	for _, timeslot := range timeslots {
+		timeslotMap[timeslot.ID] = timeslot
+	}
+
+	rooms, err := scheduler.GetAllRooms()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve rooms"})
+		return
+	}
+	roomMap := make(map[int]Room)
+	for _, room := range rooms {
+		roomMap[room.ID] = room
+	}
+
+	// Create new Excel file
+	f := excelize.NewFile()
+	sheetName := schedule.Term + " " + fmt.Sprintf("%d", schedule.Year)
+
+	// Set the default sheet name
+	f.SetSheetName("Sheet1", sheetName)
+
+	// Row 1: Merged header with schedule info (A1:E1)
+	headerText := fmt.Sprintf("%s %s %d", schedule.Prefix, schedule.Term, schedule.Year)
+	f.SetCellValue(sheetName, "A1", headerText)
+	f.MergeCell(sheetName, "A1", "E1")
+
+	// Style for row 1 - brown text, white background, 14pt bold
+	row1Style, _ := f.NewStyle(&excelize.Style{
+		Font: &excelize.Font{
+			Bold:  true,
+			Size:  14,
+			Color: "8B4513", // Brown color
+		},
+		Fill: excelize.Fill{
+			Type:    "pattern",
+			Color:   []string{"FFFFFF"}, // White background
+			Pattern: 1,
+		},
+		Alignment: &excelize.Alignment{
+			Horizontal: "center",
+			Vertical:   "center",
+		},
+	})
+	f.SetCellStyle(sheetName, "A1", "E1", row1Style)
+
+	// Row 2: Column labels
+	f.SetCellValue(sheetName, "A2", "Term")
+	f.SetCellValue(sheetName, "B2", "College")
+	f.SetCellValue(sheetName, "C2", "Department")
+	f.SetCellValue(sheetName, "D2", "Subject")
+	f.SetCellValue(sheetName, "E2", "Campus")
+
+	// Style for row 2 - tan background with bold black text
+	row2Style, _ := f.NewStyle(&excelize.Style{
+		Font: &excelize.Font{
+			Bold:  true,
+			Color: "000000", // Black color
+		},
+		Fill: excelize.Fill{
+			Type:    "pattern",
+			Color:   []string{"D2B48C"}, // Tan background
+			Pattern: 1,
+		},
+	})
+	f.SetCellStyle(sheetName, "A2", "E2", row2Style)
+
+	// Row 3: Values
+	f.SetCellValue(sheetName, "A3", fmt.Sprintf("%s %d", schedule.Term, schedule.Year))
+	f.SetCellValue(sheetName, "B3", "Engineering & Applied Sciences")
+	f.SetCellValue(sheetName, "C3", schedule.Department)
+	f.SetCellValue(sheetName, "D3", schedule.Prefix)
+	f.SetCellValue(sheetName, "E3", "Main")
+
+	// Style for row 3 - bold black text
+	row3Style, _ := f.NewStyle(&excelize.Style{
+		Font: &excelize.Font{
+			Bold:  true,
+			Color: "000000", // Black color
+		},
+	})
+	f.SetCellStyle(sheetName, "A3", "E3", row3Style)
+
+	// Define headers based on the import template structure (with removed columns)
+	headers := []string{
+		"CRN", "Course ID", "Section", "Title", "Lab", "Credit Hours", "Contact Hours",
+		"Cap", "Spec Appr", "Mtg Type", "Days", "Time", "Location",
+		"Primary Instructor", "Comment ",
+	}
+
+	// Write headers to row 5 (Excel row numbering starts at 1)
+	for i, header := range headers {
+		cell := fmt.Sprintf("%c%d", 'A'+i, 5)
+		f.SetCellValue(sheetName, cell, header)
+	}
+
+	// Style the header row
+	headerStyle, _ := f.NewStyle(&excelize.Style{
+		Font: &excelize.Font{
+			Bold:  true,
+			Color: "000000", // Black color
+		},
+		Fill: excelize.Fill{
+			Type:    "pattern",
+			Color:   []string{"FFFDD0"}, // Light cream background
+			Pattern: 1,
+		},
+		Border: []excelize.Border{
+			{Type: "left", Color: "000000", Style: 1},
+			{Type: "top", Color: "000000", Style: 1},
+			{Type: "bottom", Color: "000000", Style: 1},
+			{Type: "right", Color: "000000", Style: 1},
+		},
+	})
+
+	// Apply header style to all header columns first
+	f.SetCellStyle(sheetName, "A5", "O5", headerStyle)
+
+	// Create center alignment style for data rows only
+	centerStyle, _ := f.NewStyle(&excelize.Style{
+		Alignment: &excelize.Alignment{
+			Horizontal: "center",
+			Vertical:   "center",
+		},
+	})
+
+	// Create center alignment style with header formatting for header row
+	centerHeaderStyle, _ := f.NewStyle(&excelize.Style{
+		Font: &excelize.Font{
+			Bold:  true,
+			Color: "000000", // Black color
+		},
+		Fill: excelize.Fill{
+			Type:    "pattern",
+			Color:   []string{"FFFDD0"}, // Light cream background
+			Pattern: 1,
+		},
+		Border: []excelize.Border{
+			{Type: "left", Color: "000000", Style: 1},
+			{Type: "top", Color: "000000", Style: 1},
+			{Type: "bottom", Color: "000000", Style: 1},
+			{Type: "right", Color: "000000", Style: 1},
+		},
+		Alignment: &excelize.Alignment{
+			Horizontal: "center",
+			Vertical:   "center",
+		},
+	})
+
+	// Apply center alignment to specified columns
+	centerColumns := []string{"A", "B", "C", "E", "F", "G", "H", "I", "J", "K", "L", "M"} // CRN, Course ID, Section, Lab, Credit Hours, Contact Hours, Cap, Spec Appr, Mtg Type, Days, Time, Location
+	for _, col := range centerColumns {
+		// Apply center header style to header row
+		f.SetCellStyle(sheetName, fmt.Sprintf("%s5", col), fmt.Sprintf("%s5", col), centerHeaderStyle)
+		// Apply center style to data rows
+		if len(courses) > 0 {
+			f.SetCellStyle(sheetName, fmt.Sprintf("%s6", col), fmt.Sprintf("%s%d", col, 6+len(courses)-1), centerStyle)
+		}
+	}
+
+	// Write course data starting from row 6
+	for i, course := range courses {
+		row := i + 6 // Start from row 6
+
+		// Helper function to format time from TimeSlot
+		formatTime := func(timeslot TimeSlot) string {
+			if timeslot.StartTime == "" || timeslot.EndTime == "" {
+				return ""
+			}
+			return fmt.Sprintf("%s - %s", timeslot.StartTime, timeslot.EndTime)
+		}
+
+		// Helper function to format days from TimeSlot
+		formatDays := func(timeslot TimeSlot) string {
+			var days []string
+			if timeslot.Monday {
+				days = append(days, "M")
+			}
+			if timeslot.Tuesday {
+				days = append(days, "T")
+			}
+			if timeslot.Wednesday {
+				days = append(days, "W")
+			}
+			if timeslot.Thursday {
+				days = append(days, "R")
+			}
+			if timeslot.Friday {
+				days = append(days, "F")
+			}
+			return strings.Join(days, "")
+		}
+
+		// Helper function to format instructor name
+		formatInstructor := func(instructorID int) string {
+			if instructor, exists := instructorMap[instructorID]; exists {
+				return fmt.Sprintf("%s, %s", instructor.LastName, instructor.FirstName)
+			}
+			return ""
+		}
+
+		// Helper function to format room location
+		formatLocation := func(roomID int) string {
+			if room, exists := roomMap[roomID]; exists {
+				return fmt.Sprintf("%s %s", room.Building, room.RoomNumber)
+			}
+			return ""
+		}
+
+		// Get related data
+		var timeslot TimeSlot
+
+		if course.TimeSlotID != -1 {
+			timeslot = timeslotMap[course.TimeSlotID]
+		}
+
+		// Build course ID (Prefix + Course Number)
+		courseID := fmt.Sprintf("%s %s", course.Prefix, course.CourseNumber)
+
+		// Helper function to format credit hours range
+		formatCredits := func(min, max int) string {
+			if max > min {
+				return fmt.Sprintf("%d-%d", min, max)
+			}
+			return fmt.Sprintf("%d", min)
+		}
+
+		// Helper function to format contact hours range
+		formatContact := func(min, max int) string {
+			if max > min {
+				return fmt.Sprintf("%d-%d", min, max)
+			}
+			return fmt.Sprintf("%d", min)
+		}
+
+		// Set cell values (adjusted for new column structure)
+		f.SetCellValue(sheetName, fmt.Sprintf("A%d", row), course.CRN)     // CRN
+		f.SetCellValue(sheetName, fmt.Sprintf("B%d", row), courseID)       // Course ID
+		f.SetCellValue(sheetName, fmt.Sprintf("C%d", row), course.Section) // Section
+		f.SetCellValue(sheetName, fmt.Sprintf("D%d", row), course.Title)   // Title
+		if course.Lab {                                                    // Lab
+			f.SetCellValue(sheetName, fmt.Sprintf("E%d", row), "✓")
+		} else {
+			f.SetCellValue(sheetName, fmt.Sprintf("E%d", row), "")
+		}
+		f.SetCellValue(sheetName, fmt.Sprintf("F%d", row), formatCredits(course.MinCredits, course.MaxCredits)) // Credit Hours
+		f.SetCellValue(sheetName, fmt.Sprintf("G%d", row), formatContact(course.MinContact, course.MaxContact)) // Contact Hours
+		f.SetCellValue(sheetName, fmt.Sprintf("H%d", row), course.Cap)                                          // Cap
+		if course.Approval {                                                                                    // Spec Appr
+			f.SetCellValue(sheetName, fmt.Sprintf("I%d", row), "✓")
+		} else {
+			f.SetCellValue(sheetName, fmt.Sprintf("I%d", row), "")
+		}
+		f.SetCellValue(sheetName, fmt.Sprintf("J%d", row), course.Mode)                           // Mtg Type
+		f.SetCellValue(sheetName, fmt.Sprintf("K%d", row), formatDays(timeslot))                  // Days
+		f.SetCellValue(sheetName, fmt.Sprintf("L%d", row), formatTime(timeslot))                  // Time
+		f.SetCellValue(sheetName, fmt.Sprintf("M%d", row), formatLocation(course.RoomID))         // Location
+		f.SetCellValue(sheetName, fmt.Sprintf("N%d", row), formatInstructor(course.InstructorID)) // Primary Instructor
+		f.SetCellValue(sheetName, fmt.Sprintf("O%d", row), course.Comment)                        // Comment
+	}
+
+	// Set custom column widths
+	f.SetColWidth(sheetName, "A", "A", 15) // CRN
+	f.SetColWidth(sheetName, "B", "B", 30) // Course ID
+	f.SetColWidth(sheetName, "C", "C", 20) // Section
+	f.SetColWidth(sheetName, "D", "D", 30) // Title (increased to 30)
+	f.SetColWidth(sheetName, "E", "E", 12) // Lab
+	f.SetColWidth(sheetName, "F", "F", 10) // Credit Hours
+	f.SetColWidth(sheetName, "G", "G", 12) // Contact Hours
+	f.SetColWidth(sheetName, "H", "H", 8)  // Cap
+	f.SetColWidth(sheetName, "I", "I", 10) // Spec Appr
+	f.SetColWidth(sheetName, "J", "J", 12) // Mtg Type
+	f.SetColWidth(sheetName, "K", "K", 8)  // Days
+	f.SetColWidth(sheetName, "L", "L", 30) // Time (increased to 30)
+	f.SetColWidth(sheetName, "M", "M", 15) // Location
+	f.SetColWidth(sheetName, "N", "N", 20) // Primary Instructor
+	f.SetColWidth(sheetName, "O", "O", 15) // Comment
+
+	// Generate filename with schedule info
+	filename := fmt.Sprintf("%s_%s_%d.xlsx", schedule.Prefix, schedule.Term, schedule.Year)
+
+	// Set response headers for file download
+	c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	c.Header("Content-Transfer-Encoding", "binary")
+
+	// Write file to response
+	if err := f.Write(c.Writer); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate Excel file"})
+		return
+	}
+}

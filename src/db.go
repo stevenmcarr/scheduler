@@ -300,14 +300,14 @@ func (scheduler *wmu_scheduler) GetAllSchedules() ([]Schedule, error) {
 	return schedules, nil
 }
 
-func (scheduler *wmu_scheduler) UpdateSchedule(term string, year int, prefix string) error {
-	_, err := scheduler.database.Exec("UPDATE schedules SET term = ?, year = ?, prefix = ? WHERE term = ? AND year = ? AND prefix = ?", term, year, prefix, term, year, prefix)
-	return err
-}
-
 func (scheduler *wmu_scheduler) GetScheduleByID(id int) (*Schedule, error) {
 	var schedule Schedule
-	err := scheduler.database.QueryRow("SELECT id, term, year, prefix FROM schedules WHERE id = ?", id).Scan(&schedule.ID, &schedule.Term, &schedule.Year, &schedule.Prefix)
+	err := scheduler.database.QueryRow(`
+	SELECT s.id, s.term, s.year, p.prefix , d.name
+		FROM schedules s
+		JOIN prefixes p ON s.prefix_id = p.id
+		JOIN departments d ON s.department_id = d.id
+		WHERE s.id = ?`, id).Scan(&schedule.ID, &schedule.Term, &schedule.Year, &schedule.Prefix, &schedule.Department)
 	if err == sql.ErrNoRows {
 		return nil, nil // Schedule not found
 	}
@@ -361,7 +361,11 @@ type Course struct {
 	Prefix       string
 	CourseNumber string
 	Title        string
-	Credits      int
+	MinCredits   int
+	MaxCredits   int
+	MinContact   int
+	MaxContact   int
+	Credits      string
 	Contact      string
 	Cap          int
 	Approval     bool // Changed from Appr to Approval
@@ -376,7 +380,8 @@ type Course struct {
 
 func (scheduler *wmu_scheduler) GetActiveCoursesForSchedule(scheduleID int) ([]Course, error) {
 	rows, err := scheduler.database.Query(`
-		SELECT c.id, c.crn, c.section, p.prefix, c.course_number, c.title, c.min_credits, c.max_contact, c.cap, 
+		SELECT c.id, c.crn, c.section, p.prefix, c.course_number, c.title, 
+			   c.min_credits, c.max_credits, c.min_contact, c.max_contact, c.cap, 
 			   c.approval = 1 as approval, c.lab = 1 as lab,
 			   COALESCE(c.instructor_id, -1) as instructor_id,
 			   COALESCE(c.timeslot_id, -1) as timeslot_id,
@@ -397,9 +402,22 @@ func (scheduler *wmu_scheduler) GetActiveCoursesForSchedule(scheduleID int) ([]C
 	for rows.Next() {
 		var course Course
 		course.ScheduleID = scheduleID // Set ScheduleID from the parameter
-		if err := rows.Scan(&course.ID, &course.CRN, &course.Section, &course.Prefix, &course.CourseNumber, &course.Title, &course.Credits, &course.Contact, &course.Cap, &course.Approval, &course.Lab, &course.InstructorID, &course.TimeSlotID, &course.RoomID, &course.Mode, &course.Status, &course.Comment); err != nil {
+		if err := rows.Scan(&course.ID, &course.CRN, &course.Section, &course.Prefix, &course.CourseNumber, &course.Title, &course.MinCredits, &course.MaxCredits, &course.MinContact, &course.MaxContact, &course.Cap, &course.Approval, &course.Lab, &course.InstructorID, &course.TimeSlotID, &course.RoomID, &course.Mode, &course.Status, &course.Comment); err != nil {
 			return nil, err
 		}
+		// Set compatibility fields
+		if course.MinCredits < course.MaxCredits {
+			course.Credits = fmt.Sprintf("%d-%d", course.MinCredits, course.MaxCredits)
+		} else {
+			course.Credits = fmt.Sprintf("%d", course.MinCredits)
+		}
+
+		if course.MinContact < course.MaxContact {
+			course.Contact = fmt.Sprintf("%d-%d", course.MinContact, course.MaxContact)
+		} else {
+			course.Contact = fmt.Sprintf("%d", course.MinContact)
+		}
+
 		if course.Status != "Deleted" {
 			courses = append(courses, course)
 		}

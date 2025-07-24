@@ -45,6 +45,16 @@
             font-size: 14px;
         }
         
+        th.sortable {
+            cursor: pointer;
+            user-select: none;
+        }
+        th.sortable:after {
+            content: ' ⇅';
+            font-size: 0.8em;
+            color: #ccc;
+        }
+        
         /* Column widths */
         th:nth-child(1), td:nth-child(1) { width: 80px; } /* CRN */
         th:nth-child(2), td:nth-child(2) { width: 60px; } /* Section */
@@ -277,21 +287,21 @@
                 <table id="courses-table">
                 <thead>
                     <tr>
-                        <th>CRN</th>
+                        <th class="sortable" onclick="sortTable(0)">CRN</th>
                         <th>Section</th>
                         <th>Prefix</th>
-                        <th>Course #</th>
+                        <th class="sortable" onclick="sortTable(3)">Course #</th>
                         <th>Title</th>
                         <th>Credits</th>
                         <th>Contact</th>
                         <th>Cap</th>
                         <th>Approval</th>
                         <th>Lab</th>
-                        <th>Instructor</th>
-                        <th>Time</th>
-                        <th>Room</th>
-                        <th>Mode</th>
-                        <th>Status</th>
+                        <th class="sortable" onclick="sortTable(10)">Instructor</th>
+                        <th class="sortable" onclick="sortTable(11)">Time</th>
+                        <th class="sortable" onclick="sortTable(12)">Room</th>
+                        <th class="sortable" onclick="sortTable(13)">Mode</th>
+                        <th class="sortable" onclick="sortTable(14)">Status</th>
                         <th>Comment</th>
                     </tr>
                 </thead>
@@ -315,10 +325,10 @@
                             <input type="text" class="title-input" value="{{.Title}}" name="title">
                         </td>
                         <td>
-                            <input type="number" class="credits-input" value="{{.Credits}}" name="credits">
+                            <input type="text" class="credits-input" value="{{.Credits}}" name="credits">
                         </td>
                         <td>
-                            <input type="number" class="contact-input" value="{{.Contact}}" name="contact">
+                            <input type="text" class="contact-input" value="{{.Contact}}" name="contact">
                         </td>
                         <td>
                             <input type="number" class="cap-input" value="{{.Cap}}" name="cap">
@@ -391,8 +401,15 @@
         
         <div class="button-row">
             <button type="button" onclick="window.location.href='/scheduler/add_course'" style="background-color:#8B4513; border-color:#8B4513;">+ Add New Course</button>
+            <button type="button" onclick="exportToExcel()" style="background-color:#8B4513; border-color:#8B4513;">📊 Export to Excel</button>
             <button type="button" onclick="saveAllChanges()">Save Changes</button>
         </div>
+
+        <form id="exportCoursesForm" action="/scheduler/courses" method="post" style="display: none;">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <input type="hidden" name="action" value="export" />
+            <!-- Hidden inputs for schedule ID to export will be added by JavaScript -->
+        </form>
     </div>
     
     <script>
@@ -611,6 +628,83 @@
                 // Redirect to courses page to show session error message  
                 window.location.href = '/scheduler/courses';
             });
+        }
+        
+        // Sorting function
+        function sortTable(colIdx) {
+            const table = document.getElementById('courses-table');
+            const tbody = table.tBodies[0];
+            const rows = Array.from(tbody.rows);
+            let asc = table.getAttribute('data-sort-col') != colIdx || table.getAttribute('data-sort-dir') !== 'asc';
+            
+            rows.sort((a, b) => {
+                let aVal, bVal;
+                
+                // Get values based on the column type
+                if (colIdx === 10) { // Instructor column - get select option text
+                    const aSelect = a.cells[colIdx].querySelector('select');
+                    const bSelect = b.cells[colIdx].querySelector('select');
+                    aVal = aSelect ? aSelect.options[aSelect.selectedIndex].text : '';
+                    bVal = bSelect ? bSelect.options[bSelect.selectedIndex].text : '';
+                } else if (colIdx === 11) { // Time column - get select option text
+                    const aSelect = a.cells[colIdx].querySelector('select');
+                    const bSelect = b.cells[colIdx].querySelector('select');
+                    aVal = aSelect ? aSelect.options[aSelect.selectedIndex].text : '';
+                    bVal = bSelect ? bSelect.options[bSelect.selectedIndex].text : '';
+                } else if (colIdx === 12) { // Room column - get select option text
+                    const aSelect = a.cells[colIdx].querySelector('select');
+                    const bSelect = b.cells[colIdx].querySelector('select');
+                    aVal = aSelect ? aSelect.options[aSelect.selectedIndex].text : '';
+                    bVal = bSelect ? bSelect.options[bSelect.selectedIndex].text : '';
+                } else if (colIdx === 13) { // Mode column - get select option text
+                    const aSelect = a.cells[colIdx].querySelector('select');
+                    const bSelect = b.cells[colIdx].querySelector('select');
+                    aVal = aSelect ? aSelect.options[aSelect.selectedIndex].text : '';
+                    bVal = bSelect ? bSelect.options[bSelect.selectedIndex].text : '';
+                } else if (colIdx === 14) { // Status column - get select option text
+                    const aSelect = a.cells[colIdx].querySelector('select');
+                    const bSelect = b.cells[colIdx].querySelector('select');
+                    aVal = aSelect ? aSelect.options[aSelect.selectedIndex].text : '';
+                    bVal = bSelect ? bSelect.options[bSelect.selectedIndex].text : '';
+                } else { // For CRN and Course # - get input values
+                    const aInput = a.cells[colIdx].querySelector('input');
+                    const bInput = b.cells[colIdx].querySelector('input');
+                    aVal = aInput ? aInput.value : '';
+                    bVal = bInput ? bInput.value : '';
+                }
+                
+                // Convert to numbers for numeric columns (CRN and Course #)
+                if (colIdx === 0 || colIdx === 3) {
+                    aVal = parseInt(aVal) || 0;
+                    bVal = parseInt(bVal) || 0;
+                }
+                
+                if (aVal < bVal) return asc ? -1 : 1;
+                if (aVal > bVal) return asc ? 1 : -1;
+                return 0;
+            });
+            
+            rows.forEach(row => tbody.appendChild(row));
+            table.setAttribute('data-sort-col', colIdx);
+            table.setAttribute('data-sort-dir', asc ? 'asc' : 'desc');
+        }
+        
+        // Export to Excel function
+        function exportToExcel() {
+            const scheduleID = {{.ScheduleID}};
+            if (!scheduleID) {
+                alert('No schedule selected for export');
+                return;
+            }
+            
+            const form = document.getElementById('exportCoursesForm');
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'schedule_id';
+            input.value = scheduleID;
+            form.appendChild(input);
+            
+            form.submit();
         }
     </script>
 </body>

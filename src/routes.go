@@ -148,6 +148,11 @@ func (scheduler *wmu_scheduler) router() *gin.Engine {
 		scheduler.AddCourseGin(c)
 	})
 
+	// Export courses to Excel
+	r.GET("/scheduler/export/:scheduleID", func(c *gin.Context) {
+		scheduler.ExportCoursesToExcel(c)
+	})
+
 	r.GET("/scheduler/rooms", func(c *gin.Context) {
 		scheduler.RenderRoomsPageGin(c)
 	})
@@ -210,7 +215,15 @@ func (scheduler *wmu_scheduler) router() *gin.Engine {
 		scheduler.SaveUsersGin(c)
 	})
 
-	r.GET("/scheduler/delete", func(c *gin.Context) {
+	r.GET("/scheduler/add_user", func(c *gin.Context) {
+		scheduler.RenderAddUserPageGin(c)
+	})
+
+	r.POST("/scheduler/add_user", func(c *gin.Context) {
+		scheduler.AddUserGin(c)
+	})
+
+	r.GET("/scheduler/delete_schedule", func(c *gin.Context) {
 		scheduler.DeleteScheduleGin(c)
 	})
 	// Logout route

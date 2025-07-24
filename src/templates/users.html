@@ -45,6 +45,16 @@
             font-size: 14px;
         }
         
+        th.sortable {
+            cursor: pointer;
+            user-select: none;
+        }
+        th.sortable:after {
+            content: ' ⇅';
+            font-size: 0.8em;
+            color: #ccc;
+        }
+        
         /* Zebra striping for better readability */
         tbody tr:nth-child(even) {
             background-color: #f9f9f9;
@@ -126,6 +136,13 @@
             margin: 0;
             color: #8B4513;
         }
+        
+        .admin-warning { 
+            background-color: #ffeb3b; 
+            padding: 10px; 
+            border-radius: 4px; 
+            margin-bottom: 20px; 
+        }
     </style>
 </head>
 <body>
@@ -147,6 +164,10 @@
         </div>
         {{end}}
         
+        <div class="admin-warning">
+            <strong>Administrator Access:</strong> You can manage user accounts and administrator privileges.
+        </div>
+        
         <!-- Hidden form for CSRF token -->
         <form id="users-form" method="POST" action="/scheduler/users" style="display: none;">
             <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
@@ -159,7 +180,7 @@
                         <th style="width: 40px;">
                             <input type="checkbox" id="selectAll" onchange="toggleSelectAll()" />
                         </th>
-                        <th>Username</th>
+                        <th class="sortable" onclick="sortTable(1)">Username</th>
                         <th>Email</th>
                         <th>Is Logged In</th>
                         <th>Administrator</th>
@@ -344,6 +365,30 @@
                 // Even on error, redirect to show session error message
                 window.location.href = '/scheduler/users';
             });
+        }
+        
+        // Sorting function
+        function sortTable(colIdx) {
+            const table = document.getElementById('users-table');
+            const tbody = table.tBodies[0];
+            const rows = Array.from(tbody.rows);
+            let asc = table.getAttribute('data-sort-col') != colIdx || table.getAttribute('data-sort-dir') !== 'asc';
+            
+            rows.sort((a, b) => {
+                // Username column - get input value
+                const aInput = a.cells[colIdx].querySelector('input');
+                const bInput = b.cells[colIdx].querySelector('input');
+                const aVal = aInput ? aInput.value : '';
+                const bVal = bInput ? bInput.value : '';
+                
+                if (aVal < bVal) return asc ? -1 : 1;
+                if (aVal > bVal) return asc ? 1 : -1;
+                return 0;
+            });
+            
+            rows.forEach(row => tbody.appendChild(row));
+            table.setAttribute('data-sort-col', colIdx);
+            table.setAttribute('data-sort-dir', asc ? 'asc' : 'desc');
         }
     </script>
 </body>
