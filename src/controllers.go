@@ -1160,34 +1160,45 @@ func (scheduler *wmu_scheduler) RenderUsersPageGin(c *gin.Context) {
 }
 
 func (scheduler *wmu_scheduler) DeleteScheduleGin(c *gin.Context) {
-	// Get schedule ID from form (select box)
-	scheduleID := c.Request.URL.Query().Get("schedule_id")
-	if scheduleID == "" {
-		c.HTML(http.StatusBadRequest, "home.html", gin.H{
-			"Error": "No schedule selected for deletion.",
-		})
+	_, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
 		return
 	}
+
+	session := sessions.Default(c)
+
+	// Get schedule ID from form data
+	scheduleID := c.PostForm("schedule_id")
+	if scheduleID == "" {
+		session.Set("error", "No schedule selected for deletion")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler")
+		return
+	}
+
 	// Convert scheduleID to integer
 	id, err := strconv.Atoi(scheduleID)
 	if err != nil {
-		c.HTML(http.StatusBadRequest, "home.html", gin.H{
-			"Error": "Invalid schedule ID.",
-		})
+		session.Set("error", "Invalid schedule ID")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler")
 		return
 	}
 
 	// Attempt to delete the schedule using the database method
 	err = scheduler.DeleteSchedule(id)
 	if err != nil {
-		c.HTML(http.StatusInternalServerError, "home.html", gin.H{
-			"Error": "Failed to delete schedule: " + err.Error(),
-		})
+		session.Set("error", "Failed to delete schedule: "+err.Error())
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler")
 		return
 	}
 
-	// Redirect to home page with success message
-	c.Redirect(http.StatusFound, "/scheduler?success=Schedule deleted successfully")
+	// Set success message and redirect
+	session.Set("success", "Schedule deleted successfully")
+	session.Save()
+	c.Redirect(http.StatusFound, "/scheduler")
 }
 
 // ExcelCourseData represents a course row from Excel
