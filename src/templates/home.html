@@ -175,7 +175,25 @@
                 function deleteSchedule() {
                     var checked = document.querySelector('input[name="select_schedule"]:checked');
                     if (checked) {
-                        window.location.href = '/scheduler/delete?schedule_id=' + encodeURIComponent(checked.value);
+                        if (!confirm('Are you sure you want to delete the selected schedule?')) {
+                            return;
+                        }
+                        
+                        const form = document.getElementById('deleteScheduleForm');
+                        // Remove previous hidden inputs
+                        const existingInput = form.querySelector('input[name="schedule_id"]');
+                        if (existingInput) {
+                            existingInput.remove();
+                        }
+                        
+                        // Add schedule ID to delete
+                        const input = document.createElement('input');
+                        input.type = 'hidden';
+                        input.name = 'schedule_id';
+                        input.value = checked.value;
+                        form.appendChild(input);
+                        
+                        form.submit();
                     } else {
                         // Set session error message and reload
                         fetch('/scheduler/set_error_message', {
@@ -190,7 +208,13 @@
                     }
                 }
             </script>
-            </script></form>
+        </div>
+        
+        <!-- Hidden form for delete functionality -->
+        <form id="deleteScheduleForm" action="/scheduler/delete_schedule" method="post" style="display: none;">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <!-- Hidden input for schedule ID will be added by JavaScript -->
+        </form>
         </div>
     </div>
 </body>

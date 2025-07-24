@@ -223,7 +223,7 @@ func (scheduler *wmu_scheduler) router() *gin.Engine {
 		scheduler.AddUserGin(c)
 	})
 
-	r.GET("/scheduler/delete_schedule", func(c *gin.Context) {
+	r.POST("/scheduler/delete_schedule", func(c *gin.Context) {
 		scheduler.DeleteScheduleGin(c)
 	})
 	// Logout route
