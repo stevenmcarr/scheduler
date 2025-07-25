@@ -36,6 +36,29 @@
             box-sizing: border-box;
         }
         
+        .password-container {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+        
+        .password-container input {
+            padding-right: 40px;
+        }
+        
+        .password-toggle {
+            position: absolute;
+            right: 10px;
+            cursor: pointer;
+            user-select: none;
+            color: #666;
+            font-size: 16px;
+        }
+        
+        .password-toggle:hover {
+            color: #333;
+        }
+        
         input[type="checkbox"] {
             transform: scale(1.2);
             margin-right: 8px;
@@ -92,7 +115,58 @@
             color: #666;
             margin-top: 5px;
         }
+
+        .password-match-error {
+            border-color: #dc3545 !important;
+            background-color: #fff5f5;
+        }
+        
+        .password-error-message {
+            color: #dc3545;
+            font-size: 12px;
+            margin-top: 5px;
+            display: none;
+        }
+        
+        .password-error-message.show {
+            display: block;
+        }
     </style>
+    <script>
+        function validatePasswordMatch() {
+            var password = document.getElementById('password').value;
+            var confirmPassword = document.getElementById('confirm_password').value;
+            var confirmField = document.getElementById('confirm_password');
+            var errorMessage = document.getElementById('password-error-message');
+            
+            if (password !== confirmPassword && confirmPassword !== '') {
+                confirmField.classList.add('password-match-error');
+                errorMessage.classList.add('show');
+                return false;
+            } else {
+                confirmField.classList.remove('password-match-error');
+                errorMessage.classList.remove('show');
+                return true;
+            }
+        }
+        
+        function validateForm() {
+            return validatePasswordMatch();
+        }
+        
+        function togglePassword(fieldId, toggleId) {
+            var field = document.getElementById(fieldId);
+            var toggle = document.getElementById(toggleId);
+            
+            if (field.type === 'password') {
+                field.type = 'text';
+                toggle.textContent = '👁️‍🗨️';
+            } else {
+                field.type = 'password';
+                toggle.textContent = '👁️';
+            }
+        }
+    </script>
 </head>
 <body>
     {{template "navbar" .}}
@@ -114,22 +188,25 @@
         {{end}}
         
         <div class="form-container">
-            <form method="POST" action="/scheduler/add_user">
+            <form method="POST" action="/scheduler/add_user" onsubmit="return validateForm()">
                 <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                 
                 <div class="form-group">
                     <label for="username">Username:</label>
-                    <input type="text" id="username" name="username" required>
+                    <input type="text" id="username" name="username" value="{{.Values.username}}" required>
                 </div>
                 
                 <div class="form-group">
                     <label for="email">Email:</label>
-                    <input type="email" id="email" name="email" required>
+                    <input type="email" id="email" name="email" value="{{.Values.email}}" required>
                 </div>
                 
                 <div class="form-group">
                     <label for="password">Password:</label>
-                    <input type="password" id="password" name="password" required>
+                    <div class="password-container">
+                        <input type="password" id="password" name="password" required oninput="validatePasswordMatch()">
+                        <span class="password-toggle" id="password-toggle" onclick="togglePassword('password', 'password-toggle')">👁️</span>
+                    </div>
                     <div class="password-requirements">
                         Password must be at least 15 characters long and contain at least one uppercase letter, 
                         one lowercase letter, one number, and one special character.
@@ -137,8 +214,22 @@
                 </div>
                 
                 <div class="form-group">
+                    <label for="confirm_password">Confirm Password:</label>
+                    <div class="password-container">
+                        <input type="password" id="confirm_password" name="confirm_password" required oninput="validatePasswordMatch()">
+                        <span class="password-toggle" id="confirm-password-toggle" onclick="togglePassword('confirm_password', 'confirm-password-toggle')">👁️</span>
+                    </div>
+                    <div class="password-error-message" id="password-error-message">
+                        Passwords do not match.
+                    </div>
+                    <div class="password-requirements">
+                        Please re-enter your password to confirm it matches.
+                    </div>
+                </div>
+                
+                <div class="form-group">
                     <div class="checkbox-group">
-                        <input type="checkbox" id="administrator" name="administrator" value="true">
+                        <input type="checkbox" id="administrator" name="administrator" value="true" {{if .Values.administrator}}checked{{end}}>
                         <label for="administrator">Administrator</label>
                     </div>
                 </div>

@@ -77,12 +77,21 @@ func (scheduler *wmu_scheduler) router() *gin.Engine {
 			return token
 		},
 		ErrorFunc: func(c *gin.Context) {
+			// For login errors, redirect back to form with error message
+			if c.Request.URL.Path == "/scheduler/login" {
+				c.Redirect(http.StatusSeeOther, "/scheduler/login?error=Invalid+request")
+				c.Abort()
+				return
+			}
+			// For other routes, return JSON error
 			c.JSON(400, gin.H{
 				"error": "CSRF token mismatch",
 				"debug": gin.H{
 					"token_from_form":   c.PostForm("csrf_token"),
 					"token_from_header": c.GetHeader("X-CSRF-Token"),
 					"expected_token":    csrf.GetToken(c),
+					"path":              c.Request.URL.Path,
+					"method":            c.Request.Method,
 				},
 			})
 			c.Abort()
@@ -92,9 +101,6 @@ func (scheduler *wmu_scheduler) router() *gin.Engine {
 	r.SetTrustedProxies([]string{"127.0.0.1", "::1"})
 
 	// GET routes
-	r.GET("/scheduler/signup", func(c *gin.Context) {
-		scheduler.ShowSignupFormGin(c)
-	})
 	r.GET("/scheduler/login", func(c *gin.Context) {
 		scheduler.ShowLoginFormGin(c)
 	})
@@ -127,9 +133,6 @@ func (scheduler *wmu_scheduler) router() *gin.Engine {
 	// POST routes
 	r.POST("/scheduler/login", func(c *gin.Context) {
 		scheduler.LoginUserGin(c)
-	})
-	r.POST("/scheduler/signup", func(c *gin.Context) {
-		scheduler.SignupUserGin(c)
 	})
 
 	// Navigation routes
@@ -228,12 +231,7 @@ func (scheduler *wmu_scheduler) router() *gin.Engine {
 	})
 	// Logout route
 	r.GET("/scheduler/logout", func(c *gin.Context) {
-		// Clear session using Gin sessions middleware
-		session := sessions.Default(c)
-		session.Clear()
-		session.Save()
-		// Redirect to login page
-		c.Redirect(http.StatusFound, "/scheduler/login")
+		scheduler.LogoutUserGin(c)
 	})
 
 	r.GET("/scheduler/add_instructor", func(c *gin.Context) {

@@ -99,7 +99,10 @@ func (scheduler *wmu_scheduler) renderLoginForm(w http.ResponseWriter, r *http.R
 
 // Gin-based controller methods for proper CSRF integration
 func (scheduler *wmu_scheduler) ShowSignupFormGin(c *gin.Context) {
-	scheduler.renderSignupFormGin(c, "", "", nil)
+	// Check for success and error messages from URL parameters
+	successMsg := c.Query("success")
+	errorMsg := c.Query("error")
+	scheduler.renderSignupFormGin(c, errorMsg, successMsg, nil)
 }
 
 func (scheduler *wmu_scheduler) renderSignupFormGin(c *gin.Context, errorMsg, successMsg string, values map[string]string) {
@@ -114,9 +117,10 @@ func (scheduler *wmu_scheduler) renderSignupFormGin(c *gin.Context, errorMsg, su
 }
 
 func (scheduler *wmu_scheduler) ShowLoginFormGin(c *gin.Context) {
-	// Check for success message from URL parameters
+	// Check for success and error messages from URL parameters
 	successMsg := c.Query("success")
-	scheduler.renderLoginFormGin(c, "", successMsg, nil)
+	errorMsg := c.Query("error")
+	scheduler.renderLoginFormGin(c, errorMsg, successMsg, nil)
 }
 
 func (scheduler *wmu_scheduler) renderLoginFormGin(c *gin.Context, errorMsg, successMsg string, values map[string]string) {
@@ -173,6 +177,7 @@ func (scheduler *wmu_scheduler) SignupUserGin(c *gin.Context) {
 	username := c.PostForm("username")
 	email := c.PostForm("email")
 	password := c.PostForm("password")
+	confirmPassword := c.PostForm("confirm_password")
 
 	// Preserve form values for re-display
 	values := map[string]string{
@@ -180,20 +185,64 @@ func (scheduler *wmu_scheduler) SignupUserGin(c *gin.Context) {
 		"email":    email,
 	}
 
-	if username == "" || email == "" || password == "" {
+	if username == "" || email == "" || password == "" || confirmPassword == "" {
 		scheduler.renderSignupFormGin(c, "All fields are required", "", values)
+		return
+	}
+
+	// Check if passwords match
+	if password != confirmPassword {
+		scheduler.renderSignupFormGin(c, "Passwords do not match. Please try again.", "", values)
 		return
 	}
 
 	// Use email as username since that's what the database expects
 	err := scheduler.AddUser(username, email, password)
 	if err != nil {
-		scheduler.renderSignupFormGin(c, err.Error(), "", values)
+		// Check for specific database errors
+		if strings.Contains(err.Error(), "Duplicate entry") {
+			if strings.Contains(err.Error(), "username") {
+				scheduler.renderSignupFormGin(c, "Username already exists. Please choose a different username.", "", values)
+			} else if strings.Contains(err.Error(), "email") {
+				scheduler.renderSignupFormGin(c, "Email address already exists. Please use a different email.", "", values)
+			} else {
+				scheduler.renderSignupFormGin(c, "User already exists with this username or email.", "", values)
+			}
+		} else {
+			scheduler.renderSignupFormGin(c, err.Error(), "", values)
+		}
 		return
 	}
 
 	// Show success message and redirect
 	c.Redirect(http.StatusFound, "/scheduler/login?success=Account created successfully")
+}
+
+func (scheduler *wmu_scheduler) LogoutUserGin(c *gin.Context) {
+	// Get the current user from session before logging out
+	session := sessions.Default(c)
+	username := session.Get("username")
+
+	if username != nil {
+		if usernameStr, ok := username.(string); ok && usernameStr != "" {
+			// Update database to mark user as logged out
+			err := scheduler.SetUserLoggedInStatus(usernameStr, false)
+			if err != nil {
+				log.Printf("Error updating logout status for user %s: %v", usernameStr, err)
+				// Continue with logout even if database update fails
+			}
+		}
+	}
+
+	// Clear the session
+	session.Clear()
+	err := session.Save()
+	if err != nil {
+		log.Printf("Error clearing session: %v", err)
+	}
+
+	// Redirect to login page with success message
+	c.Redirect(http.StatusFound, "/scheduler/login?success=You have been logged out successfully")
 }
 
 func getIntFromInterface(val interface{}) int {
@@ -2163,23 +2212,43 @@ func (scheduler *wmu_scheduler) RenderAddUserPageGin(c *gin.Context) {
 		return
 	}
 
-	// Get any error or success messages from session
+	scheduler.renderAddUserFormGin(c, "", "", nil)
+}
+
+// renderAddUserFormGin renders the add user form with optional error/success messages and preserved values
+func (scheduler *wmu_scheduler) renderAddUserFormGin(c *gin.Context, errorMsg, successMsg string, values map[string]string) {
+	user, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Get any error or success messages from session if not provided directly
 	session := sessions.Default(c)
-	successMsg := session.Get("success")
-	errorMsg := session.Get("error")
-	session.Delete("success")
-	session.Delete("error")
+	if errorMsg == "" {
+		if sessionError := session.Get("error"); sessionError != nil {
+			errorMsg = sessionError.(string)
+			session.Delete("error")
+		}
+	}
+	if successMsg == "" {
+		if sessionSuccess := session.Get("success"); sessionSuccess != nil {
+			successMsg = sessionSuccess.(string)
+			session.Delete("success")
+		}
+	}
 	session.Save()
 
 	data := gin.H{
 		"User":      user,
 		"CSRFToken": csrf.GetToken(c),
+		"Values":    values,
 	}
 
-	if successMsg != nil {
+	if successMsg != "" {
 		data["Success"] = successMsg
 	}
-	if errorMsg != nil {
+	if errorMsg != "" {
 		data["Error"] = errorMsg
 	}
 
@@ -2203,28 +2272,49 @@ func (scheduler *wmu_scheduler) AddUserGin(c *gin.Context) {
 		return
 	}
 
-	session := sessions.Default(c)
-
 	// Get form data
 	username := c.PostForm("username")
 	email := c.PostForm("email")
 	password := c.PostForm("password")
+	confirmPassword := c.PostForm("confirm_password")
 	administrator := c.PostForm("administrator") == "true"
 
+	// Preserve form values for re-display on error
+	values := map[string]string{
+		"username": username,
+		"email":    email,
+	}
+	if administrator {
+		values["administrator"] = "true"
+	}
+
 	// Validate required fields
-	if username == "" || email == "" || password == "" {
-		session.Set("error", "All fields are required")
-		session.Save()
-		c.Redirect(http.StatusFound, "/scheduler/add_user")
+	if username == "" || email == "" || password == "" || confirmPassword == "" {
+		scheduler.renderAddUserFormGin(c, "All fields are required", "", values)
+		return
+	}
+
+	// Check if passwords match
+	if password != confirmPassword {
+		scheduler.renderAddUserFormGin(c, "Passwords do not match. Please try again.", "", values)
 		return
 	}
 
 	// Add the user
 	err = scheduler.AddUser(username, email, password)
 	if err != nil {
-		session.Set("error", "Failed to add user: "+err.Error())
-		session.Save()
-		c.Redirect(http.StatusFound, "/scheduler/add_user")
+		// Check for specific database errors
+		if strings.Contains(err.Error(), "Duplicate entry") {
+			if strings.Contains(err.Error(), "username") {
+				scheduler.renderAddUserFormGin(c, "Username already exists. Please choose a different username.", "", values)
+			} else if strings.Contains(err.Error(), "email") {
+				scheduler.renderAddUserFormGin(c, "Email address already exists. Please use a different email.", "", values)
+			} else {
+				scheduler.renderAddUserFormGin(c, "User already exists with this username or email.", "", values)
+			}
+		} else {
+			scheduler.renderAddUserFormGin(c, "Failed to add user: "+err.Error(), "", values)
+		}
 		return
 	}
 
@@ -2235,6 +2325,7 @@ func (scheduler *wmu_scheduler) AddUserGin(c *gin.Context) {
 		if err == nil && newUser != nil {
 			err = scheduler.UpdateUserByID(newUser.ID, username, email, false, true)
 			if err != nil {
+				session := sessions.Default(c)
 				session.Set("error", "User created but failed to set administrator privileges")
 				session.Save()
 				c.Redirect(http.StatusFound, "/scheduler/users")
@@ -2243,6 +2334,7 @@ func (scheduler *wmu_scheduler) AddUserGin(c *gin.Context) {
 		}
 	}
 
+	session := sessions.Default(c)
 	session.Set("success", "User '"+username+"' added successfully")
 	session.Save()
 	c.Redirect(http.StatusFound, "/scheduler/users")
