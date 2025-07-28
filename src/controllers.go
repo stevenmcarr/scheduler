@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"html/template"
-	"log"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -228,7 +227,7 @@ func (scheduler *wmu_scheduler) LogoutUserGin(c *gin.Context) {
 			// Update database to mark user as logged out
 			err := scheduler.SetUserLoggedInStatus(usernameStr, false)
 			if err != nil {
-				log.Printf("Error updating logout status for user %s: %v", usernameStr, err)
+				AppLogger.LogError(fmt.Sprintf("Error updating logout status for user %s", usernameStr), err)
 				// Continue with logout even if database update fails
 			}
 		}
@@ -238,7 +237,7 @@ func (scheduler *wmu_scheduler) LogoutUserGin(c *gin.Context) {
 	session.Clear()
 	err := session.Save()
 	if err != nil {
-		log.Printf("Error clearing session: %v", err)
+		AppLogger.LogError("Error clearing session", err)
 	}
 
 	// Redirect to login page with success message
@@ -389,7 +388,7 @@ func (scheduler *wmu_scheduler) SaveCoursesGin(c *gin.Context) {
 
 	_, err := scheduler.getCurrentUser(c)
 	if err != nil {
-		log.Printf("Authentication error: %v", err)
+		AppLogger.LogError("Authentication error in SaveCoursesGin", err)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
 		return
 	}
@@ -403,7 +402,7 @@ func (scheduler *wmu_scheduler) SaveCoursesGin(c *gin.Context) {
 	// Parse the courses JSON data from the form
 	coursesJSON := c.PostForm("courses")
 	if coursesJSON == "" {
-		log.Printf("No courses data provided in form")
+		AppLogger.LogWarning("No courses data provided in form")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No courses data provided"})
 		return
 	}
@@ -412,6 +411,7 @@ func (scheduler *wmu_scheduler) SaveCoursesGin(c *gin.Context) {
 	var courses []map[string]interface{}
 	err = json.Unmarshal([]byte(coursesJSON), &courses)
 	if err != nil {
+		AppLogger.LogError("Failed to unmarshal courses JSON data", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid courses data format"})
 		return
 	}
@@ -1337,14 +1337,14 @@ func (scheduler *wmu_scheduler) ImportExcelSchedule(filePath string, schedule *S
 		// Import the course
 		err := scheduler.importCourseFromExcel(courseData, schedule)
 		if err != nil {
-			log.Printf("Error importing course CRN %s: %v", courseData.CRN, err)
+			AppLogger.LogError(fmt.Sprintf("Error importing course CRN %s", courseData.CRN), err)
 			errorCount++
 		} else {
 			importedCount++
 		}
 	}
 
-	log.Printf("Import completed: %d courses imported, %d errors", importedCount, errorCount)
+	AppLogger.LogInfo(fmt.Sprintf("Import completed: %d courses imported, %d errors", importedCount, errorCount))
 	return nil
 }
 
@@ -1473,7 +1473,7 @@ func (scheduler *wmu_scheduler) importCourseFromExcel(data ExcelCourseData, sche
 		var err error
 		timeSlotID, err = scheduler.findOrCreateTimeSlot(data.Days, data.Time)
 		if err != nil {
-			log.Printf("Warning: Could not create time slot for %s %s: %v", data.Days, data.Time, err)
+			AppLogger.LogWarning(fmt.Sprintf("Could not create time slot for %s %s: %v", data.Days, data.Time, err))
 			timeSlotID = -1 // This will be converted to NULL
 		}
 	}
@@ -1484,7 +1484,7 @@ func (scheduler *wmu_scheduler) importCourseFromExcel(data ExcelCourseData, sche
 		var err error
 		roomID, err = scheduler.findOrCreateRoom(data.Location)
 		if err != nil {
-			log.Printf("Warning: Could not create room for %s: %v", data.Location, err)
+			AppLogger.LogWarning(fmt.Sprintf("Could not create room for %s: %v", data.Location, err))
 			roomID = -1 // This will be converted to NULL
 		}
 	}
@@ -1495,7 +1495,7 @@ func (scheduler *wmu_scheduler) importCourseFromExcel(data ExcelCourseData, sche
 		var err error
 		instructorID, err = scheduler.findOrCreateInstructor(data.PrimaryInstructor)
 		if err != nil {
-			log.Printf("Warning: Could not create instructor for %s: %v", data.PrimaryInstructor, err)
+			AppLogger.LogWarning(fmt.Sprintf("Could not create instructor for %s: %v", data.PrimaryInstructor, err))
 			instructorID = -1 // This will be converted to NULL
 		}
 	}

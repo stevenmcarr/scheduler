@@ -55,35 +55,52 @@ func ValidatePassword(password string) bool {
 // AddUser inserts a new user into the users table.
 func (scheduler *wmu_scheduler) AddUser(username, email, password string) error {
 	if !ValidateEmail(email) {
-		return errors.New("invalid email address")
+		err := errors.New("invalid email address")
+		AppLogger.LogError(fmt.Sprintf("Failed to add user %s: invalid email %s", username, email), err)
+		return err
 	}
 	if !ValidatePassword(password) {
-		return errors.New("password does not meet requirements: must be at least 15 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character")
+		err := errors.New("password does not meet requirements: must be at least 15 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character")
+		AppLogger.LogError(fmt.Sprintf("Failed to add user %s: password validation failed", username), err)
+		return err
 	}
 	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
+		AppLogger.LogError(fmt.Sprintf("Failed to hash password for user %s", username), err)
 		return err
 	}
 	_, err = scheduler.database.Exec("INSERT INTO users (username, email, password) VALUES (?, ?, ?)", username, email, hashed)
+	if err != nil {
+		AppLogger.LogError(fmt.Sprintf("Failed to insert user %s into database", username), err)
+	}
 	return err
 }
 
 // DeleteUser removes a user from the users table.
 func (scheduler *wmu_scheduler) DeleteUser(username string) error {
 	_, err := scheduler.database.Exec("DELETE FROM users WHERE username = ?", username)
+	if err != nil {
+		AppLogger.LogError(fmt.Sprintf("Failed to delete user %s from database", username), err)
+	}
 	return err
 }
 
 // UpdateUserPassword updates the password for a user.
 func (scheduler *wmu_scheduler) UpdateUserPassword(username, newPassword string) error {
 	if !ValidatePassword(newPassword) {
-		return errors.New("password does not meet requirements")
+		err := errors.New("password does not meet requirements")
+		AppLogger.LogError(fmt.Sprintf("Failed to update password for user %s: password validation failed", username), err)
+		return err
 	}
 	hashed, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
+		AppLogger.LogError(fmt.Sprintf("Failed to hash new password for user %s", username), err)
 		return err
 	}
 	_, err = scheduler.database.Exec("UPDATE users SET password = ? WHERE username = ?", hashed, username)
+	if err != nil {
+		AppLogger.LogError(fmt.Sprintf("Failed to update password for user %s in database", username), err)
+	}
 	return err
 }
 
@@ -92,12 +109,17 @@ func (scheduler *wmu_scheduler) AuthenticateUser(usernameOrEmail, password strin
 	// Allow login with either username or email
 	err := scheduler.database.QueryRow("SELECT password FROM users WHERE username = ? OR email = ?", usernameOrEmail, usernameOrEmail).Scan(&hashedPassword)
 	if err == sql.ErrNoRows {
+		AppLogger.LogWarning(fmt.Sprintf("Authentication attempt for non-existent user: %s", usernameOrEmail))
 		return false, nil
 	}
 	if err != nil {
+		AppLogger.LogError(fmt.Sprintf("Database error during authentication for user %s", usernameOrEmail), err)
 		return false, err
 	}
 	err = bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
+	if err != nil {
+		AppLogger.LogWarning(fmt.Sprintf("Failed authentication attempt for user %s", usernameOrEmail))
+	}
 	return err == nil, nil
 }
 
@@ -108,6 +130,7 @@ func (scheduler *wmu_scheduler) GetUserLoggedInStatus(usernameOrEmail string) (b
 		return false, nil
 	}
 	if err != nil {
+		AppLogger.LogError(fmt.Sprintf("Failed to get login status for user %s", usernameOrEmail), err)
 		return false, err
 	}
 	return isLoggedIn, nil
@@ -115,6 +138,9 @@ func (scheduler *wmu_scheduler) GetUserLoggedInStatus(usernameOrEmail string) (b
 
 func (scheduler *wmu_scheduler) SetUserLoggedInStatus(usernameOrEmail string, isLoggedIn bool) error {
 	_, err := scheduler.database.Exec("UPDATE users SET is_logged_in = ? WHERE username = ? OR email = ?", isLoggedIn, usernameOrEmail, usernameOrEmail)
+	if err != nil {
+		AppLogger.LogError(fmt.Sprintf("Failed to set login status for user %s to %v", usernameOrEmail, isLoggedIn), err)
+	}
 	return err
 }
 
@@ -125,6 +151,7 @@ func (scheduler *wmu_scheduler) GetUserByUsername(username string) (*User, error
 		return nil, nil // User not found
 	}
 	if err != nil {
+		AppLogger.LogError(fmt.Sprintf("Failed to get user by username %s", username), err)
 		return nil, err
 	}
 	return &user, nil
