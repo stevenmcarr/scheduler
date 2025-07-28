@@ -78,9 +78,18 @@ func main() {
 	AppLogger.LogInfo("Starting WMU Course Scheduler...")
 
 	// Load environment variables from .env file
-	err = godotenv.Load("../.env")
-	if err != nil {
-		AppLogger.LogError("Error loading .env file", err)
+	// Try multiple paths for .env file
+	envPaths := []string{".env", "../.env", "/var/www/html/scheduler/.env"}
+	var envErr error
+	for _, path := range envPaths {
+		envErr = godotenv.Load(path)
+		if envErr == nil {
+			AppLogger.LogInfo(fmt.Sprintf("Loaded environment from: %s", path))
+			break
+		}
+	}
+	if envErr != nil {
+		AppLogger.LogError("Error loading .env file from all paths", envErr)
 		log.Fatal("Error loading .env file")
 	}
 
@@ -115,6 +124,11 @@ func main() {
 		database: database,
 	}
 
+	// Get TLS configuration
+	tlsEnabled := os.Getenv("TLS_ENABLED")
+	tlsCertFile := os.Getenv("TLS_CERT_FILE")
+	tlsKeyFile := os.Getenv("TLS_KEY_FILE")
+
 	// Create Gin router with default middleware (logger and recovery)
 	r := scheduler.router()
 
@@ -123,10 +137,16 @@ func main() {
 		database.Close()
 	}()
 
-	AppLogger.LogInfo(fmt.Sprintf("Starting server on port %s...", serverPort))
+	// Start server with or without TLS
+	if tlsEnabled == "true" && tlsCertFile != "" && tlsKeyFile != "" {
+		AppLogger.LogInfo(fmt.Sprintf("Starting HTTPS server on port %s...", serverPort))
+		AppLogger.LogInfo(fmt.Sprintf("Using TLS cert: %s", tlsCertFile))
+		err = r.RunTLS(":"+serverPort, tlsCertFile, tlsKeyFile)
+	} else {
+		AppLogger.LogInfo(fmt.Sprintf("Starting HTTP server on port %s...", serverPort))
+		err = r.Run(":" + serverPort)
+	}
 
-	// Start server on configured port
-	err = r.Run(":" + serverPort)
 	if err != nil {
 		AppLogger.LogError("Failed to start server", err)
 		log.Fatalf("Failed to start server: %v", err)
