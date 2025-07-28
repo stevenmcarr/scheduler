@@ -6,8 +6,8 @@ Wants=mysql.service
 
 [Service]
 Type=simple
-User=www-data
-Group=www-data
+User=root
+Group=root
 WorkingDirectory=/var/www/html/scheduler
 ExecStart=/var/www/html/scheduler/scheduler
 Restart=always
@@ -25,7 +25,6 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/log/scheduler /var/www/html/scheduler/uploads
-ReadOnlyPaths=/etc/letsencrypt/live/vaccs.ceas.wmich.edu /etc/letsencrypt/archive/vaccs.ceas.wmich.edu
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
