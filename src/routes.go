@@ -1,15 +1,12 @@
 package main
 
 import (
-	"fmt"
 	"html/template"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
@@ -24,7 +21,7 @@ func (scheduler *wmu_scheduler) router() *gin.Engine {
 	// Configure Gin to use our custom logger
 	logFile, err := os.OpenFile("/var/log/scheduler/scheduler.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
-		log.Printf("Failed to open log file for Gin: %v", err)
+		AppLogger.LogError("Failed to open log file for Gin", err)
 		// Fall back to stdout only
 		gin.DefaultWriter = os.Stdout
 	} else {
@@ -32,17 +29,21 @@ func (scheduler *wmu_scheduler) router() *gin.Engine {
 		gin.DefaultWriter = io.MultiWriter(os.Stdout, logFile)
 	}
 
-	// Add custom logging middleware with detailed request information
-	r.Use(gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
-		return fmt.Sprintf("[HTTP] %v | %3d | %13v | %15s | %-7s %#v | User-Agent: %s\n",
-			param.TimeStamp.Format(time.RFC3339),
-			param.StatusCode,
-			param.Latency,
-			param.ClientIP,
-			param.Method,
-			param.Path,
-			param.Request.UserAgent(),
-		)
+	// Add custom logging middleware with detailed request information using AppLogger
+	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{
+		Formatter: func(param gin.LogFormatterParams) string {
+			// Use AppLogger for HTTP logging instead of default Gin logger
+			AppLogger.LogHTTP(
+				param.Method,
+				param.Path,
+				param.ClientIP,
+				param.Request.UserAgent(),
+				param.StatusCode,
+				param.Latency.String(),
+			)
+			return "" // Return empty string since we're using AppLogger directly
+		},
+		Output: gin.DefaultWriter, // Still set an output for any fallback logging
 	}))
 
 	// Add recovery middleware
@@ -188,6 +189,11 @@ func (scheduler *wmu_scheduler) router() *gin.Engine {
 		scheduler.ExportCoursesToExcel(c)
 	})
 
+	// Course schedule table view
+	r.GET("/scheduler/courses_table", func(c *gin.Context) {
+		scheduler.RenderCoursesTableGin(c)
+	})
+
 	r.GET("/scheduler/rooms", func(c *gin.Context) {
 		scheduler.RenderRoomsPageGin(c)
 	})
@@ -242,6 +248,12 @@ func (scheduler *wmu_scheduler) router() *gin.Engine {
 	})
 	r.POST("/scheduler/prefixes", func(c *gin.Context) {
 		scheduler.SavePrefixesGin(c)
+	})
+	r.GET("/scheduler/add_prefix", func(c *gin.Context) {
+		scheduler.RenderAddPrefixPageGin(c)
+	})
+	r.POST("/scheduler/add_prefix", func(c *gin.Context) {
+		scheduler.AddPrefixGin(c)
 	})
 	r.GET("/scheduler/users", func(c *gin.Context) {
 		scheduler.RenderUsersPageGin(c)

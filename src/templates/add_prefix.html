@@ -1,0 +1,138 @@
+{{define "add_prefix"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Add Prefix - WMU Course Scheduler</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+        .content { margin: 24px; }
+        .form-container { max-width: 600px; margin: 0 auto; }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .form-group input, .form-group select { 
+            width: 100%; 
+            padding: 8px; 
+            border: 1px solid #ccc; 
+            border-radius: 4px; 
+            font-size: 14px; 
+            box-sizing: border-box;
+        }
+        .button-row { display: flex; gap: 12px; justify-content: flex-end; margin-top: 30px; }
+        button { padding: 10px 20px; font-size: 14px; cursor: pointer; border: none; border-radius: 4px; }
+        .save-btn { background-color: #8B4513; color: white; }
+        .save-btn:hover { background-color: #654321; }
+        .cancel-btn { background-color: #6c757d; color: white; }
+        .cancel-btn:hover { background-color: #545b62; }
+        
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .page-header h1 {
+            margin: 0;
+            color: #8B4513;
+        }
+        
+        .help-text {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    {{template "navbar" .}}
+    <div class="content">
+        <div class="form-container">
+            <div class="page-header">
+                <h1>Add New Course Prefix</h1>
+            </div>
+            
+            {{if .Success}}
+            <div style="background-color: #d4edda; color: #155724; padding: 10px; margin-bottom: 20px; border: 1px solid #c3e6cb; border-radius: 4px;">
+                {{.Success}}
+            </div>
+            {{end}}
+            
+            {{if .Error}}
+            <div style="background-color: #f8d7da; color: #721c24; padding: 10px; margin-bottom: 20px; border: 1px solid #f5c6cb; border-radius: 4px;">
+                {{.Error}}
+            </div>
+            {{end}}
+            
+            <form method="POST" action="/scheduler/add_prefix">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                
+                <div class="form-group">
+                    <label for="prefix">Prefix Code:</label>
+                    <input type="text" id="prefix" name="prefix" required 
+                           placeholder="Enter prefix code (e.g., CS, MATH, ENG)" 
+                           value="{{.Values.prefix}}"
+                           maxlength="10"
+                           style="text-transform: uppercase;" />
+                    <div class="help-text">
+                        Enter the course prefix code (usually 2-4 letters). This will be automatically converted to uppercase.
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="department">Department:</label>
+                    <select id="department" name="department" required>
+                        <option value="">Select a Department</option>
+                        {{range .Departments}}
+                        <option value="{{.Name}}" {{if eq .Name $.Values.department}}selected{{end}}>
+                            {{.Name}}
+                        </option>
+                        {{end}}
+                    </select>
+                    <div class="help-text">
+                        Choose the department that this prefix belongs to.
+                    </div>
+                </div>
+                
+                <div class="button-row">
+                    <button type="button" class="cancel-btn" onclick="window.location.href='/scheduler/prefixes'">Cancel</button>
+                    <button type="submit" class="save-btn">Add Prefix</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Auto-uppercase the prefix input
+        document.getElementById('prefix').addEventListener('input', function(e) {
+            e.target.value = e.target.value.toUpperCase();
+        });
+        
+        // Form validation
+        document.querySelector('form').addEventListener('submit', function(e) {
+            const prefix = document.getElementById('prefix').value.trim();
+            const department = document.getElementById('department').value;
+            
+            if (!prefix) {
+                alert('Please enter a prefix code.');
+                e.preventDefault();
+                return false;
+            }
+            
+            if (!department) {
+                alert('Please select a department.');
+                e.preventDefault();
+                return false;
+            }
+            
+            // Basic prefix validation (letters only, 2-10 characters)
+            if (!/^[A-Z]{2,10}$/.test(prefix)) {
+                alert('Prefix code must be 2-10 letters only (no numbers or special characters).');
+                e.preventDefault();
+                return false;
+            }
+        });
+    </script>
+</body>
+</html>
+{{end}}

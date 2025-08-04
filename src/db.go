@@ -1214,3 +1214,75 @@ func (scheduler *wmu_scheduler) DeleteUserByID(userID int) error {
 	_, err := scheduler.database.Exec(query, userID)
 	return err
 }
+
+// CourseScheduleItem represents a course with all needed details for the schedule table
+type CourseScheduleItem struct {
+	CRN            int
+	Prefix         string
+	CourseNumber   string
+	Title          string
+	InstructorName string
+	StartTime      string
+	EndTime        string
+	Monday         bool
+	Tuesday        bool
+	Wednesday      bool
+	Thursday       bool
+	Friday         bool
+}
+
+// GetCoursesWithScheduleData retrieves all courses with their time slot and instructor information
+func (scheduler *wmu_scheduler) GetCoursesWithScheduleData() ([]CourseScheduleItem, error) {
+	query := `
+		SELECT c.crn, p.prefix, c.course_number, c.title, 
+			   COALESCE(i.first_name, '') as instructor_first,
+			   COALESCE(i.last_name, '') as instructor_last,
+			   COALESCE(ts.start_time, '') as start_time,
+			   COALESCE(ts.end_time, '') as end_time,
+			   COALESCE(ts.M, 0) as monday,
+			   COALESCE(ts.T, 0) as tuesday,
+			   COALESCE(ts.W, 0) as wednesday,
+			   COALESCE(ts.R, 0) as thursday,
+			   COALESCE(ts.F, 0) as friday
+		FROM courses c
+		JOIN schedules s ON c.schedule_id = s.id
+		JOIN prefixes p ON s.prefix_id = p.id
+		LEFT JOIN instructors i ON c.instructor_id = i.id
+		LEFT JOIN time_slots ts ON c.timeslot_id = ts.id
+		WHERE c.status != 'Deleted'
+		ORDER BY ts.start_time, p.prefix, c.course_number
+	`
+
+	rows, err := scheduler.database.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var courses []CourseScheduleItem
+	for rows.Next() {
+		var course CourseScheduleItem
+		var instructorFirst, instructorLast string
+
+		err := rows.Scan(
+			&course.CRN, &course.Prefix, &course.CourseNumber, &course.Title,
+			&instructorFirst, &instructorLast,
+			&course.StartTime, &course.EndTime,
+			&course.Monday, &course.Tuesday, &course.Wednesday, &course.Thursday, &course.Friday,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Construct instructor name
+		if instructorFirst != "" || instructorLast != "" {
+			course.InstructorName = strings.TrimSpace(instructorFirst + " " + instructorLast)
+		} else {
+			course.InstructorName = "TBA"
+		}
+
+		courses = append(courses, course)
+	}
+
+	return courses, nil
+}

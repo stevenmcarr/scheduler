@@ -49,5 +49,11 @@ Thumbs.db
 # Logs
 *.log
 
+# TLS Certificates and private keys
+certs/
+*.pem
+*.crt
+*.key
+
 # Air live reload
 tmp/

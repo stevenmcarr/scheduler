@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"net/http"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -2735,6 +2736,212 @@ func (scheduler *wmu_scheduler) SavePrefixesGin(c *gin.Context) {
 	c.Redirect(http.StatusFound, "/scheduler/prefixes")
 }
 
+// RenderAddPrefixPageGin renders the add prefix page
+func (scheduler *wmu_scheduler) RenderAddPrefixPageGin(c *gin.Context) {
+	user, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Check if user is administrator
+	if !user.Administrator {
+		c.HTML(http.StatusForbidden, "error.html", gin.H{
+			"Error": "Access denied. Administrator privileges required.",
+			"User":  user,
+		})
+		return
+	}
+
+	// Get departments for the dropdown
+	departments, err := scheduler.GetAllDepartments()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
+			"Error": "Error loading departments: " + err.Error(),
+			"User":  user,
+		})
+		return
+	}
+
+	// Get any error or success messages from session
+	session := sessions.Default(c)
+	errorMsg := session.Get("error")
+	successMsg := session.Get("success")
+	session.Delete("error")
+	session.Delete("success")
+	session.Save()
+
+	data := gin.H{
+		"User":        user,
+		"CSRFToken":   csrf.GetToken(c),
+		"Departments": departments,
+		"Values":      gin.H{}, // Empty values for new prefix
+	}
+
+	if errorMsg != nil {
+		data["Error"] = errorMsg
+	}
+	if successMsg != nil {
+		data["Success"] = successMsg
+	}
+
+	c.HTML(http.StatusOK, "add_prefix", data)
+}
+
+// AddPrefixGin handles adding a new prefix
+func (scheduler *wmu_scheduler) AddPrefixGin(c *gin.Context) {
+	user, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Check if user is administrator
+	if !user.Administrator {
+		session := sessions.Default(c)
+		session.Set("error", "Access denied. Administrator privileges required.")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/add_prefix")
+		return
+	}
+
+	session := sessions.Default(c)
+	prefix := strings.TrimSpace(strings.ToUpper(c.PostForm("prefix")))
+	departmentName := strings.TrimSpace(c.PostForm("department"))
+
+	// Preserve form values for re-display on error
+	values := gin.H{
+		"prefix":     prefix,
+		"department": departmentName,
+	}
+
+	// Validation
+	if prefix == "" {
+		session.Set("error", "Prefix code is required")
+		session.Save()
+		scheduler.renderAddPrefixFormWithValues(c, values)
+		return
+	}
+
+	if departmentName == "" {
+		session.Set("error", "Department selection is required")
+		session.Save()
+		scheduler.renderAddPrefixFormWithValues(c, values)
+		return
+	}
+
+	// Validate prefix format (letters only, 2-10 characters)
+	if !regexp.MustCompile(`^[A-Z]{2,10}$`).MatchString(prefix) {
+		session.Set("error", "Prefix code must be 2-10 letters only (no numbers or special characters)")
+		session.Save()
+		scheduler.renderAddPrefixFormWithValues(c, values)
+		return
+	}
+
+	// Check if prefix already exists
+	existingPrefixes, err := scheduler.GetAllPrefixes()
+	if err != nil {
+		AppLogger.LogError("Error checking existing prefixes", err)
+		session.Set("error", "Error checking existing prefixes")
+		session.Save()
+		scheduler.renderAddPrefixFormWithValues(c, values)
+		return
+	}
+
+	for _, existingPrefix := range existingPrefixes {
+		if existingPrefix.Prefix == prefix {
+			session.Set("error", fmt.Sprintf("Prefix '%s' already exists", prefix))
+			session.Save()
+			scheduler.renderAddPrefixFormWithValues(c, values)
+			return
+		}
+	}
+
+	// Verify department exists
+	departments, err := scheduler.GetAllDepartments()
+	if err != nil {
+		AppLogger.LogError("Error loading departments for validation", err)
+		session.Set("error", "Error validating department")
+		session.Save()
+		scheduler.renderAddPrefixFormWithValues(c, values)
+		return
+	}
+
+	var departmentExists bool
+	for _, dept := range departments {
+		if dept.Name == departmentName {
+			departmentExists = true
+			break
+		}
+	}
+
+	if !departmentExists {
+		session.Set("error", "Selected department does not exist")
+		session.Save()
+		scheduler.renderAddPrefixFormWithValues(c, values)
+		return
+	}
+
+	// Add the prefix
+	err = scheduler.AddPrefix(prefix, departmentName)
+	if err != nil {
+		AppLogger.LogError("Error adding prefix", err)
+		session.Set("error", fmt.Sprintf("Error adding prefix: %v", err))
+		session.Save()
+		scheduler.renderAddPrefixFormWithValues(c, values)
+		return
+	}
+
+	// Success
+	AppLogger.LogInfo(fmt.Sprintf("User %s added new prefix: %s (%s)", user.Username, prefix, departmentName))
+	session.Set("success", fmt.Sprintf("Prefix '%s' added successfully", prefix))
+	session.Save()
+	c.Redirect(http.StatusFound, "/scheduler/prefixes")
+}
+
+// renderAddPrefixFormWithValues renders the add prefix form with preserved values
+func (scheduler *wmu_scheduler) renderAddPrefixFormWithValues(c *gin.Context, values gin.H) {
+	user, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Get departments for the dropdown
+	departments, err := scheduler.GetAllDepartments()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
+			"Error": "Error loading departments: " + err.Error(),
+			"User":  user,
+		})
+		return
+	}
+
+	// Get any error or success messages from session
+	session := sessions.Default(c)
+	errorMsg := session.Get("error")
+	successMsg := session.Get("success")
+	session.Delete("error")
+	session.Delete("success")
+	session.Save()
+
+	data := gin.H{
+		"User":        user,
+		"CSRFToken":   csrf.GetToken(c),
+		"Departments": departments,
+		"Values":      values,
+	}
+
+	if errorMsg != nil {
+		data["Error"] = errorMsg
+	}
+	if successMsg != nil {
+		data["Success"] = successMsg
+	}
+
+	c.HTML(http.StatusOK, "add_prefix", data)
+}
+
 // SaveUsersGin handles saving user changes and bulk deletion
 func (scheduler *wmu_scheduler) SaveUsersGin(c *gin.Context) {
 	user, err := scheduler.getCurrentUser(c)
@@ -3214,4 +3421,104 @@ func (scheduler *wmu_scheduler) ExportCoursesToExcel(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate Excel file"})
 		return
 	}
+}
+
+// ScheduleData represents the organized schedule data for the template
+type ScheduleData struct {
+	Monday    map[string][]CourseScheduleItem
+	Tuesday   map[string][]CourseScheduleItem
+	Wednesday map[string][]CourseScheduleItem
+	Thursday  map[string][]CourseScheduleItem
+	Friday    map[string][]CourseScheduleItem
+}
+
+// RenderCoursesTableGin renders the courses table page
+func (scheduler *wmu_scheduler) RenderCoursesTableGin(c *gin.Context) {
+	session := sessions.Default(c)
+
+	AppLogger.Printf("DEBUG: Starting RenderCoursesTableGin")
+
+	// Get all time slots for the table structure
+	timeSlots, err := scheduler.GetAllTimeSlots()
+	if err != nil {
+		AppLogger.Printf("Error getting time slots: %v", err)
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
+			"Error": "Unable to load time slots",
+		})
+		return
+	}
+	AppLogger.Printf("DEBUG: Got %d time slots", len(timeSlots))
+
+	// Get all courses with time slot and instructor data
+	courseScheduleItems, err := scheduler.GetCoursesWithScheduleData()
+	if err != nil {
+		AppLogger.Printf("Error getting courses with schedule data: %v", err)
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
+			"Error": "Unable to load course schedule data",
+		})
+		return
+	}
+	AppLogger.Printf("DEBUG: Got %d course schedule items", len(courseScheduleItems)) // Build time slot strings for the template
+	timeSlotStrings := make([]string, 0)
+	for _, ts := range timeSlots {
+		timeSlotStrings = append(timeSlotStrings, ts.StartTime)
+	}
+
+	// Initialize schedule data structure with all time slots
+	schedule := ScheduleData{
+		Monday:    make(map[string][]CourseScheduleItem),
+		Tuesday:   make(map[string][]CourseScheduleItem),
+		Wednesday: make(map[string][]CourseScheduleItem),
+		Thursday:  make(map[string][]CourseScheduleItem),
+		Friday:    make(map[string][]CourseScheduleItem),
+	}
+
+	// Pre-populate all time slots with empty slices
+	for _, timeSlot := range timeSlotStrings {
+		schedule.Monday[timeSlot] = []CourseScheduleItem{}
+		schedule.Tuesday[timeSlot] = []CourseScheduleItem{}
+		schedule.Wednesday[timeSlot] = []CourseScheduleItem{}
+		schedule.Thursday[timeSlot] = []CourseScheduleItem{}
+		schedule.Friday[timeSlot] = []CourseScheduleItem{}
+	}
+
+	// Organize courses by day and time
+	for _, course := range courseScheduleItems {
+		if course.Monday {
+			schedule.Monday[course.StartTime] = append(schedule.Monday[course.StartTime], course)
+		}
+		if course.Tuesday {
+			schedule.Tuesday[course.StartTime] = append(schedule.Tuesday[course.StartTime], course)
+		}
+		if course.Wednesday {
+			schedule.Wednesday[course.StartTime] = append(schedule.Wednesday[course.StartTime], course)
+		}
+		if course.Thursday {
+			schedule.Thursday[course.StartTime] = append(schedule.Thursday[course.StartTime], course)
+		}
+		if course.Friday {
+			schedule.Friday[course.StartTime] = append(schedule.Friday[course.StartTime], course)
+		}
+	}
+
+	// Get any session messages
+	var errorMsg, successMsg string
+	if msg := session.Get("error"); msg != nil {
+		errorMsg = msg.(string)
+		session.Delete("error")
+	}
+	if msg := session.Get("success"); msg != nil {
+		successMsg = msg.(string)
+		session.Delete("success")
+	}
+	session.Save()
+
+	AppLogger.Printf("DEBUG: About to render template with %d time slots and schedule data", len(timeSlotStrings))
+	c.HTML(http.StatusOK, "courses_table", gin.H{
+		"TimeSlots": timeSlotStrings,
+		"Schedule":  schedule,
+		"Error":     errorMsg,
+		"Success":   successMsg,
+		"CSRFToken": csrf.GetToken(c),
+	})
 }

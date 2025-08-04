@@ -1,37 +1,36 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
 func TestHTTPLogging(t *testing.T) {
 	// Initialize logging for test
-	err := initLogger()
-	if err != nil {
-		t.Fatalf("Failed to initialize logger: %v", err)
-	}
+	initLogger() // Now always succeeds, may fallback to stdout-only logging
 
 	// Create a simple test router
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 
 	// Add the same logging middleware as in the main router
-	r.Use(gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
-		return fmt.Sprintf("[HTTP] %v | %3d | %13v | %15s | %-7s %#v | User-Agent: %s\n",
-			param.TimeStamp.Format(time.RFC3339),
-			param.StatusCode,
-			param.Latency,
-			param.ClientIP,
-			param.Method,
-			param.Path,
-			param.Request.UserAgent(),
-		)
+	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{
+		Formatter: func(param gin.LogFormatterParams) string {
+			// Use AppLogger for HTTP logging instead of default Gin logger
+			AppLogger.LogHTTP(
+				param.Method,
+				param.Path,
+				param.ClientIP,
+				param.Request.UserAgent(),
+				param.StatusCode,
+				param.Latency.String(),
+			)
+			return "" // Return empty string since we're using AppLogger directly
+		},
+		Output: gin.DefaultWriter, // Still set an output for any fallback logging
 	}))
 
 	// Add a simple test route
@@ -54,6 +53,6 @@ func TestHTTPLogging(t *testing.T) {
 		t.Errorf("Expected status code 200, got %d", w.Code)
 	}
 
-	fmt.Println("HTTP logging test completed successfully!")
-	fmt.Println("Check /var/log/scheduler/scheduler.log for the logged HTTP request.")
+	AppLogger.LogInfo("HTTP logging test completed successfully!")
+	AppLogger.LogInfo("Check /var/log/scheduler/scheduler.log for the logged HTTP request.")
 }
