@@ -203,11 +203,13 @@ func (scheduler *wmu_scheduler) router() *gin.Engine {
 	r.GET("/scheduler/add_crosslisting", func(c *gin.Context) {
 		scheduler.RenderAddCrosslistingPageGin(c)
 	})
+
 	r.POST("/scheduler/add_crosslisting", func(c *gin.Context) {
 		scheduler.AddCrosslistingGin(c)
 	})
-	r.POST("/scheduler/delete_crosslisting", func(c *gin.Context) {
-		scheduler.DeleteCrosslistingGin(c)
+
+	r.POST("/scheduler/crosslisting", func(c *gin.Context) {
+		scheduler.DeleteCrosslistingsGin(c)
 	})
 
 	// API route for getting courses by schedule (for AJAX)
@@ -310,6 +312,7 @@ func (scheduler *wmu_scheduler) router() *gin.Engine {
 	r.GET("/scheduler/conflicts", func(c *gin.Context) {
 		scheduler.RenderConflictSelectPageGin(c)
 	})
+
 	r.POST("/scheduler/conflicts", func(c *gin.Context) {
 		scheduler.DetectScheduleConflictsGin(c)
 	})

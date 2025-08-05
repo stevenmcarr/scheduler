@@ -404,6 +404,7 @@
             <button type="button" onclick="window.location.href='/scheduler/courses_table'" style="background-color:#8B4513; border-color:#8B4513;">📅 Course Table</button>
             <button type="button" onclick="window.location.href='/scheduler/crosslistings'" style="background-color:#8B4513; border-color:#8B4513;">🔗 Cross Listings</button>
             <button type="button" onclick="exportToExcel()" style="background-color:#8B4513; border-color:#8B4513;">📊 Export to Excel</button>
+            <button type="button" onclick="detectConflicts()" style="background-color:#8B4513; border-color:#8B4513;">⚠️ Detect Conflicts</button>
             <button type="button" onclick="saveAllChanges()">Save Changes</button>
         </div>
 
@@ -689,6 +690,31 @@
             rows.forEach(row => tbody.appendChild(row));
             table.setAttribute('data-sort-col', colIdx);
             table.setAttribute('data-sort-dir', asc ? 'asc' : 'desc');
+        }
+        
+        // Detect Conflicts function
+        function detectConflicts() {
+            const form = document.createElement('form');
+            form.method = 'post';
+            form.action = '/scheduler/courses';
+            form.style.display = 'none';
+            
+            // Add CSRF token
+            const csrfInput = document.createElement('input');
+            csrfInput.type = 'hidden';
+            csrfInput.name = 'csrf_token';
+            csrfInput.value = '{{.CSRFToken}}';
+            form.appendChild(csrfInput);
+            
+            // Add action parameter
+            const actionInput = document.createElement('input');
+            actionInput.type = 'hidden';
+            actionInput.name = 'action';
+            actionInput.value = 'detect';
+            form.appendChild(actionInput);
+            
+            document.body.appendChild(form);
+            form.submit();
         }
         
         // Export to Excel function

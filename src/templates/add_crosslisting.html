@@ -166,6 +166,7 @@
         
         <form action="/scheduler/add_crosslisting" method="POST" class="form-container">
             <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <input type="hidden" name="action" value="add">
             
             <div class="courses-row">
                 <div class="course-section">
