@@ -378,6 +378,7 @@
                                 <option value="FSO" {{if eq .Mode "FSO"}}selected{{end}}>FSO</option>
                                 <option value="PSO" {{if eq .Mode "PSO"}}selected{{end}}>PSO</option>
                                 <option value="H" {{if eq .Mode "H"}}selected{{end}}>H</option>
+                                <option value="CLAS" {{if eq .Mode "CLAS"}}selected{{end}}>CLAS</option>
                             </select>
                         </td>
                         <td>
@@ -694,27 +695,14 @@
         
         // Detect Conflicts function
         function detectConflicts() {
-            const form = document.createElement('form');
-            form.method = 'post';
-            form.action = '/scheduler/courses';
-            form.style.display = 'none';
+            const scheduleID = {{.ScheduleID}};
+            if (!scheduleID) {
+                alert('No schedule selected for conflict detection');
+                return;
+            }
             
-            // Add CSRF token
-            const csrfInput = document.createElement('input');
-            csrfInput.type = 'hidden';
-            csrfInput.name = 'csrf_token';
-            csrfInput.value = '{{.CSRFToken}}';
-            form.appendChild(csrfInput);
-            
-            // Add action parameter
-            const actionInput = document.createElement('input');
-            actionInput.type = 'hidden';
-            actionInput.name = 'action';
-            actionInput.value = 'detect';
-            form.appendChild(actionInput);
-            
-            document.body.appendChild(form);
-            form.submit();
+            // Navigate to conflicts page with current schedule pre-selected as both schedule1 and schedule2
+            window.location.href = '/scheduler/conflicts?schedule1=' + scheduleID + '&schedule2=' + scheduleID;
         }
         
         // Export to Excel function

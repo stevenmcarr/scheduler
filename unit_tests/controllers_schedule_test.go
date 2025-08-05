@@ -626,3 +626,148 @@ func contains(slice []string, item string) bool {
 	}
 	return false
 }
+
+// Test Conflict Detection with Pre-selection
+func TestConflictDetectionPreSelection(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	store := cookie.NewStore([]byte("test-secret"))
+	router.Use(sessions.Sessions("session", store))
+
+	// Mock conflict select page handler with pre-selection support
+	renderConflictSelectHandler := func(c *gin.Context) {
+		session := sessions.Default(c)
+		if session.Get("username") == nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
+			return
+		}
+
+		// Check for pre-selected schedules from query parameters
+		preSelectedSchedule1 := c.Query("schedule1")
+		preSelectedSchedule2 := c.Query("schedule2")
+
+		mockSchedules := []TestSchedule{
+			{ID: 1, Term: "Fall", Year: 2024, Prefix: "CS"},
+			{ID: 2, Term: "Spring", Year: 2025, Prefix: "MATH"},
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"schedules":            mockSchedules,
+			"preSelectedSchedule1": preSelectedSchedule1,
+			"preSelectedSchedule2": preSelectedSchedule2,
+		})
+	}
+
+	router.GET("/conflicts", renderConflictSelectHandler)
+
+	// Test with no pre-selection
+	t.Run("Conflict Select - No Pre-selection", func(t *testing.T) {
+		cookie := CreateAuthenticatedSession(router, "testuser")
+
+		req, _ := http.NewRequest("GET", "/conflicts", nil)
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var response map[string]interface{}
+		json.Unmarshal(w.Body.Bytes(), &response)
+		assert.Equal(t, "", response["preSelectedSchedule1"])
+		assert.Equal(t, "", response["preSelectedSchedule2"])
+	})
+
+	// Test with one schedule pre-selected
+	t.Run("Conflict Select - One Schedule Pre-selected", func(t *testing.T) {
+		cookie := CreateAuthenticatedSession(router, "testuser")
+
+		req, _ := http.NewRequest("GET", "/conflicts?schedule1=1", nil)
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var response map[string]interface{}
+		json.Unmarshal(w.Body.Bytes(), &response)
+		assert.Equal(t, "1", response["preSelectedSchedule1"])
+		assert.Equal(t, "", response["preSelectedSchedule2"])
+	})
+
+	// Test with both schedules pre-selected
+	t.Run("Conflict Select - Both Schedules Pre-selected", func(t *testing.T) {
+		cookie := CreateAuthenticatedSession(router, "testuser")
+
+		req, _ := http.NewRequest("GET", "/conflicts?schedule1=1&schedule2=2", nil)
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var response map[string]interface{}
+		json.Unmarshal(w.Body.Bytes(), &response)
+		assert.Equal(t, "1", response["preSelectedSchedule1"])
+		assert.Equal(t, "2", response["preSelectedSchedule2"])
+	})
+}
+
+// Test Courses Page Conflict Detection
+func TestCoursesConflictDetection(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	store := cookie.NewStore([]byte("test-secret"))
+	router.Use(sessions.Sessions("session", store))
+
+	// Mock conflict select page handler for courses page conflict detection
+	renderConflictSelectHandler := func(c *gin.Context) {
+		session := sessions.Default(c)
+		if session.Get("username") == nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
+			return
+		}
+
+		// Check for pre-selected schedules from query parameters
+		preSelectedSchedule1 := c.Query("schedule1")
+		preSelectedSchedule2 := c.Query("schedule2")
+
+		c.JSON(http.StatusOK, gin.H{
+			"preSelectedSchedule1": preSelectedSchedule1,
+			"preSelectedSchedule2": preSelectedSchedule2,
+		})
+	}
+
+	router.GET("/conflicts", renderConflictSelectHandler)
+
+	// Test courses page conflict detection - should pre-select same schedule for both dropdowns
+	t.Run("Courses Conflict Detection - Same Schedule for Both", func(t *testing.T) {
+		cookie := CreateAuthenticatedSession(router, "testuser")
+
+		// Simulate the courses page calling conflicts with current schedule as both parameters
+		req, _ := http.NewRequest("GET", "/conflicts?schedule1=5&schedule2=5", nil)
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var response map[string]interface{}
+		json.Unmarshal(w.Body.Bytes(), &response)
+		assert.Equal(t, "5", response["preSelectedSchedule1"])
+		assert.Equal(t, "5", response["preSelectedSchedule2"])
+	})
+}
