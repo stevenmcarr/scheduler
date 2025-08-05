@@ -3432,22 +3432,54 @@ type ScheduleData struct {
 	Friday    map[string][]CourseScheduleItem
 }
 
+func timeStringToMinutes(timeStr string) int {
+	// Parse the time string (e.g., "8:30 AM") into a time.Time object
+	parts := strings.Split(timeStr, ":")
+	if len(parts) < 2 {
+		return -1
+	}
+	hour, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return -1
+	}
+	minute, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return -1
+	}
+	return hour*60 + minute
+}
+
+func addCourseInRange(dayMap map[string][]CourseScheduleItem, course CourseScheduleItem) {
+	var startTime, endTime int
+	// Convert time strings to integers for easier comparison
+	if course.StartTime == "" || course.EndTime == "" {
+		return // Skip if times are not set
+	}
+	// Convert course.StartTime (e.g., "8:30 AM") to minutes since midnight
+	startTime = timeStringToMinutes(course.StartTime)
+	endTime = timeStringToMinutes(course.EndTime)
+
+	for t := startTime; t < endTime; t += 30 {
+		hour := t / 60
+		minute := t % 60
+		ampm := "AM"
+		displayHour := hour
+		if hour == 0 {
+			displayHour = 12
+		} else if hour > 12 {
+			displayHour = hour - 12
+			ampm = "PM"
+		} else if hour == 12 {
+			ampm = "PM"
+		}
+		timeStr := fmt.Sprintf("%d:%02d %s", displayHour, minute, ampm)
+		dayMap[timeStr] = append(dayMap[timeStr], course)
+	}
+}
+
 // RenderCoursesTableGin renders the courses table page
 func (scheduler *wmu_scheduler) RenderCoursesTableGin(c *gin.Context) {
 	session := sessions.Default(c)
-
-	AppLogger.Printf("DEBUG: Starting RenderCoursesTableGin")
-
-	// Get all time slots for the table structure
-	timeSlots, err := scheduler.GetAllTimeSlots()
-	if err != nil {
-		AppLogger.Printf("Error getting time slots: %v", err)
-		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
-			"Error": "Unable to load time slots",
-		})
-		return
-	}
-	AppLogger.Printf("DEBUG: Got %d time slots", len(timeSlots))
 
 	// Get all courses with time slot and instructor data
 	courseScheduleItems, err := scheduler.GetCoursesWithScheduleData()
@@ -3458,11 +3490,11 @@ func (scheduler *wmu_scheduler) RenderCoursesTableGin(c *gin.Context) {
 		})
 		return
 	}
-	AppLogger.Printf("DEBUG: Got %d course schedule items", len(courseScheduleItems)) // Build time slot strings for the template
 	timeSlotStrings := make([]string, 0)
-	for _, ts := range timeSlots {
-		timeSlotStrings = append(timeSlotStrings, ts.StartTime)
-	}
+	timeSlotStrings = append(timeSlotStrings, "8:00 AM", "8:30 AM", "9:00 AM", "9:30 AM", "10:00 AM", "10:30 AM",
+		"11:00 AM", "11:30 AM", "12:00 PM", "12:30 PM", "1:00 PM", "1:30 PM", "2:00 PM", "2:30 PM", "3:00 PM",
+		"3:30 PM", "4:00 PM", "4:30 PM", "5:00 PM", "5:30 PM", "6:00 PM", "6:30 PM", "7:00 PM", "7:30 PM",
+		"8:00 PM", "8:30 PM", "9:00 PM", "9:30 PM")
 
 	// Initialize schedule data structure with all time slots
 	schedule := ScheduleData{
@@ -3485,19 +3517,19 @@ func (scheduler *wmu_scheduler) RenderCoursesTableGin(c *gin.Context) {
 	// Organize courses by day and time
 	for _, course := range courseScheduleItems {
 		if course.Monday {
-			schedule.Monday[course.StartTime] = append(schedule.Monday[course.StartTime], course)
+			addCourseInRange(schedule.Monday, course)
 		}
 		if course.Tuesday {
-			schedule.Tuesday[course.StartTime] = append(schedule.Tuesday[course.StartTime], course)
+			addCourseInRange(schedule.Tuesday, course)
 		}
 		if course.Wednesday {
-			schedule.Wednesday[course.StartTime] = append(schedule.Wednesday[course.StartTime], course)
+			addCourseInRange(schedule.Wednesday, course)
 		}
 		if course.Thursday {
-			schedule.Thursday[course.StartTime] = append(schedule.Thursday[course.StartTime], course)
+			addCourseInRange(schedule.Thursday, course)
 		}
 		if course.Friday {
-			schedule.Friday[course.StartTime] = append(schedule.Friday[course.StartTime], course)
+			addCourseInRange(schedule.Friday, course)
 		}
 	}
 
@@ -3513,7 +3545,6 @@ func (scheduler *wmu_scheduler) RenderCoursesTableGin(c *gin.Context) {
 	}
 	session.Save()
 
-	AppLogger.Printf("DEBUG: About to render template with %d time slots and schedule data", len(timeSlotStrings))
 	c.HTML(http.StatusOK, "courses_table", gin.H{
 		"TimeSlots": timeSlotStrings,
 		"Schedule":  schedule,
@@ -3521,4 +3552,320 @@ func (scheduler *wmu_scheduler) RenderCoursesTableGin(c *gin.Context) {
 		"Success":   successMsg,
 		"CSRFToken": csrf.GetToken(c),
 	})
+}
+
+// Conflict detection structures
+type ConflictPair struct {
+	Course1 CourseDetail
+	Course2 CourseDetail
+	Type    string // "instructor" or "room"
+}
+
+type CourseDetail struct {
+	ID           int
+	CRN          int
+	Section      string
+	ScheduleID   int
+	Prefix       string
+	CourseNumber string
+	Title        string
+	InstructorID int
+	TimeSlotID   int
+	RoomID       int
+	Mode         string
+	TimeSlot     *TimeSlot
+}
+
+type ConflictReport struct {
+	InstructorConflicts []ConflictPair
+	RoomConflicts       []ConflictPair
+	Schedule1ID         int
+	Schedule2ID         int
+}
+
+// DetectScheduleConflictsGin detects conflicts between two schedules
+func (scheduler *wmu_scheduler) DetectScheduleConflictsGin(c *gin.Context) {
+	// Get current user for authorization
+	user, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	schedule1ID := c.PostForm("schedule1_id")
+	schedule2ID := c.PostForm("schedule2_id")
+
+	if schedule1ID == "" || schedule2ID == "" {
+		session := sessions.Default(c)
+		session.Set("error", "Both schedules must be selected")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/conflicts")
+		return
+	}
+
+	id1, err := strconv.Atoi(schedule1ID)
+	if err != nil {
+		session := sessions.Default(c)
+		session.Set("error", "Invalid schedule selection")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/conflicts")
+		return
+	}
+
+	id2, err := strconv.Atoi(schedule2ID)
+	if err != nil {
+		session := sessions.Default(c)
+		session.Set("error", "Invalid schedule selection")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/conflicts")
+		return
+	}
+
+	conflicts, err := scheduler.DetectConflictsBetweenSchedules(id1, id2)
+	if err != nil {
+		session := sessions.Default(c)
+		session.Set("error", "Failed to detect conflicts: "+err.Error())
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/conflicts")
+		return
+	}
+
+	// Get schedule names for display
+	schedules, err := scheduler.GetAllSchedules()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
+			"Error": "Error fetching schedules: " + err.Error(),
+			"User":  user,
+		})
+		return
+	}
+
+	var schedule1Name, schedule2Name string
+	for _, sched := range schedules {
+		if sched.ID == id1 {
+			schedule1Name = fmt.Sprintf("%s %s %d", sched.Prefix, sched.Term, sched.Year)
+		}
+		if sched.ID == id2 {
+			schedule2Name = fmt.Sprintf("%s %s %d", sched.Prefix, sched.Term, sched.Year)
+		}
+	}
+
+	c.HTML(http.StatusOK, "conflict_display.html", gin.H{
+		"User":          user,
+		"Conflicts":     conflicts,
+		"Schedule1Name": schedule1Name,
+		"Schedule2Name": schedule2Name,
+		"CSRFToken":     csrf.GetToken(c),
+	})
+}
+
+// RenderConflictSelectPageGin renders the conflict selection page
+func (scheduler *wmu_scheduler) RenderConflictSelectPageGin(c *gin.Context) {
+	// Get current user for authorization
+	user, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Get all schedules for dropdown
+	schedules, err := scheduler.GetAllSchedules()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
+			"Error": "Error fetching schedules: " + err.Error(),
+			"User":  user,
+		})
+		return
+	}
+
+	// Get any session messages
+	session := sessions.Default(c)
+	var errorMsg, successMsg string
+	if msg := session.Get("error"); msg != nil {
+		errorMsg = msg.(string)
+		session.Delete("error")
+	}
+	if msg := session.Get("success"); msg != nil {
+		successMsg = msg.(string)
+		session.Delete("success")
+	}
+	session.Save()
+
+	c.HTML(http.StatusOK, "conflict_select.html", gin.H{
+		"User":      user,
+		"Schedules": schedules,
+		"Error":     errorMsg,
+		"Success":   successMsg,
+		"CSRFToken": csrf.GetToken(c),
+	})
+}
+func conflictExists(conflicts []ConflictPair, c1, c2 CourseDetail, conflictType string) bool {
+	for _, pair := range conflicts {
+		if pair.Type != conflictType {
+			continue
+		}
+		// Check both (c1, c2) and (c2, c1)
+		if (pair.Course1.ID == c1.ID && pair.Course2.ID == c2.ID) ||
+			(pair.Course1.ID == c2.ID && pair.Course2.ID == c1.ID) {
+			return true
+		}
+	}
+	return false
+}
+
+// DetectConflictsBetweenSchedules performs the actual conflict detection logic
+func (scheduler *wmu_scheduler) DetectConflictsBetweenSchedules(schedule1ID, schedule2ID int) (*ConflictReport, error) {
+	// Get courses from both schedules with detailed information
+	courses1, err := scheduler.getCoursesWithDetails(schedule1ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get courses for schedule %d: %v", schedule1ID, err)
+	}
+
+	courses2, err := scheduler.getCoursesWithDetails(schedule2ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get courses for schedule %d: %v", schedule2ID, err)
+	}
+
+	var instructorConflicts []ConflictPair
+	var roomConflicts []ConflictPair
+
+	// Compare each course from schedule1 with each course from schedule2
+	for _, course1 := range courses1 {
+		for _, course2 := range courses2 {
+			// Skip identical courses if comparing the same schedule
+			if schedule1ID == schedule2ID && course1.ID == course2.ID {
+				continue
+			}
+
+			// Check if time slots overlap
+			if scheduler.timeSlotsOverlap(course1.TimeSlot, course2.TimeSlot) {
+				// Check for instructor conflicts
+				if course1.InstructorID == course2.InstructorID && course1.InstructorID > 0 {
+					// Check for FSO/PSO exception
+					if !scheduler.isFSOPSOException(course1, course2) {
+						conflictPair := ConflictPair{
+							Course1: course1,
+							Course2: course2,
+							Type:    "instructor",
+						}
+						// Avoid duplicate conflicts
+						if !conflictExists(instructorConflicts, course1, course2, "instructor") {
+							// Add to instructor conflicts
+							instructorConflicts = append(instructorConflicts, conflictPair)
+						}
+					}
+				}
+
+				// Check for room conflicts (different courses in same room)
+				if course1.RoomID == course2.RoomID && course1.RoomID > 0 && !scheduler.isSameCourse(course1, course2) {
+					conflictPair := ConflictPair{
+						Course1: course1,
+						Course2: course2,
+						Type:    "room",
+					}
+					// Avoid duplicate conflicts
+					if !conflictExists(roomConflicts, course1, course2, "room") {
+						// Add to room conflicts
+						roomConflicts = append(roomConflicts, conflictPair)
+					}
+				}
+			}
+		}
+	}
+
+	fmt.Printf("Detected %d instructor conflicts and %d room conflicts between schedules %d and %d\n",
+		len(instructorConflicts), len(roomConflicts), schedule1ID, schedule2ID)
+
+	return &ConflictReport{
+		InstructorConflicts: instructorConflicts,
+		RoomConflicts:       roomConflicts,
+		Schedule1ID:         schedule1ID,
+		Schedule2ID:         schedule2ID,
+	}, nil
+}
+
+// getCoursesWithDetails retrieves courses with their timeslot details
+func (scheduler *wmu_scheduler) getCoursesWithDetails(scheduleID int) ([]CourseDetail, error) {
+	courses, err := scheduler.GetActiveCoursesForSchedule(scheduleID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active courses for schedule %d: %v", scheduleID, err)
+	}
+
+	courseDetail := make([]CourseDetail, 0)
+
+	for _, course := range courses {
+
+		timeslot, err := scheduler.GetTimeSlotById(course.TimeSlotID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get timeslot for course %d: %v", course.ID, err)
+		}
+
+		// Populate the TimeSlot information
+		courseDetail = append(courseDetail, CourseDetail{
+			ID:           course.ID,
+			CRN:          course.CRN,
+			Section:      course.Section,
+			ScheduleID:   course.ScheduleID,
+			Prefix:       course.Prefix,
+			CourseNumber: course.CourseNumber,
+			Title:        course.Title,
+			InstructorID: course.InstructorID,
+			TimeSlotID:   course.TimeSlotID,
+			RoomID:       course.RoomID,
+			Mode:         course.Mode,
+			TimeSlot:     timeslot,
+		})
+
+	}
+
+	return courseDetail, nil
+}
+
+// timeSlotsOverlap checks if two time slots overlap in both time and days
+func (scheduler *wmu_scheduler) timeSlotsOverlap(ts1, ts2 *TimeSlot) bool {
+	if ts1 == nil || ts2 == nil {
+		return false // If either timeslot is nil, no overlap
+	}
+
+	// Check if they share any common days
+	daysOverlap := (ts1.Monday && ts2.Monday) ||
+		(ts1.Tuesday && ts2.Tuesday) ||
+		(ts1.Wednesday && ts2.Wednesday) ||
+		(ts1.Thursday && ts2.Thursday) ||
+		(ts1.Friday && ts2.Friday)
+
+	if !daysOverlap {
+		return false
+	}
+
+	// Check if times overlap
+	// Convert time strings to comparable format (assuming HH:MM format)
+	return scheduler.timeRangesOverlap(ts1.StartTime, ts1.EndTime, ts2.StartTime, ts2.EndTime)
+}
+
+// timeRangesOverlap checks if two time ranges overlap
+func (scheduler *wmu_scheduler) timeRangesOverlap(start1, end1, start2, end2 string) bool {
+	// If any time is empty, assume no overlap
+	if start1 == "" || end1 == "" || start2 == "" || end2 == "" {
+		return false
+	}
+
+	// Simple string comparison should work for HH:MM format
+	// start1 < end2 && start2 < end1
+	return start1 < end2 && start2 < end1
+}
+
+// isFSOPSOException checks if courses are exempt from instructor conflicts due to FSO/PSO mode
+func (scheduler *wmu_scheduler) isFSOPSOException(course1, course2 CourseDetail) bool {
+	// If courses have the same course number and one is FSO or PSO, no conflict
+	if course1.Prefix == course2.Prefix && course1.CourseNumber == course2.CourseNumber {
+		return (course1.Mode == "FSO" || course1.Mode == "PSO") ||
+			(course2.Mode == "FSO" || course2.Mode == "PSO")
+	}
+	return false
+}
+
+// isSameCourse checks if two courses are the same course (same prefix and course number)
+func (scheduler *wmu_scheduler) isSameCourse(course1, course2 CourseDetail) bool {
+	return course1.Prefix == course2.Prefix && course1.CourseNumber == course2.CourseNumber
 }

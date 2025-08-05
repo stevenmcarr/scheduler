@@ -285,6 +285,14 @@ func (scheduler *wmu_scheduler) router() *gin.Engine {
 		scheduler.AddInstructorGin(c)
 	})
 
+	// Conflict detection routes
+	r.GET("/scheduler/conflicts", func(c *gin.Context) {
+		scheduler.RenderConflictSelectPageGin(c)
+	})
+	r.POST("/scheduler/conflicts", func(c *gin.Context) {
+		scheduler.DetectScheduleConflictsGin(c)
+	})
+
 	// Session message routes
 	r.POST("/scheduler/set_error_message", func(c *gin.Context) {
 		scheduler.SetErrorMessageGin(c)

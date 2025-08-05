@@ -579,14 +579,26 @@ func (scheduler *wmu_scheduler) GetAllTimeSlots() ([]TimeSlot, error) {
 		var startHours, startMinutes, endHours, endMinutes int
 		if len(startTimeParts) >= 2 {
 			startHours, err1 = strconv.Atoi(startTimeParts[0])
+			if err1 != nil {
+				return nil, err1
+			}
 			startMinutes, err1 = strconv.Atoi(startTimeParts[1])
+			if err1 != nil {
+				return nil, err1
+			}
 		} else {
 			err1 = fmt.Errorf("invalid start time format")
 			return nil, err1
 		}
 		if len(endTimeParts) >= 2 {
 			endHours, err2 = strconv.Atoi(endTimeParts[0])
+			if err2 != nil {
+				return nil, err2
+			}
 			endMinutes, err2 = strconv.Atoi(endTimeParts[1])
+			if err2 != nil {
+				return nil, err2
+			}
 		} else {
 			err2 = fmt.Errorf("invalid end time format")
 			return nil, err2
@@ -606,6 +618,60 @@ func (scheduler *wmu_scheduler) GetAllTimeSlots() ([]TimeSlot, error) {
 	}
 
 	return timeslots, nil
+}
+
+func (scheduler *wmu_scheduler) GetTimeSlotById(timeslotID int) (*TimeSlot, error) {
+	var timeslot TimeSlot
+	err := scheduler.database.QueryRow(
+		`SELECT id, start_time, end_time, M, T, W, R, F FROM time_slots WHERE id = ?`,
+		timeslotID,
+	).Scan(
+		&timeslot.ID, &timeslot.StartTime, &timeslot.EndTime,
+		&timeslot.Monday, &timeslot.Tuesday, &timeslot.Wednesday, &timeslot.Thursday, &timeslot.Friday,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	timeslot.Days = ""
+	if timeslot.Monday {
+		timeslot.Days += "M"
+	}
+	if timeslot.Tuesday {
+		timeslot.Days += "T"
+	}
+	if timeslot.Wednesday {
+		timeslot.Days += "W"
+	}
+	if timeslot.Thursday {
+		timeslot.Days += "R"
+	}
+	if timeslot.Friday {
+		timeslot.Days += "F"
+	}
+	// Calculate duration
+	startParts := strings.Split(timeslot.StartTime, ":")
+	endParts := strings.Split(timeslot.EndTime, ":")
+	if len(startParts) == 2 && len(endParts) == 2 {
+		startH, _ := strconv.Atoi(startParts[0])
+		startM, _ := strconv.Atoi(startParts[1])
+		endH, _ := strconv.Atoi(endParts[0])
+		endM, _ := strconv.Atoi(endParts[1])
+		durH := endH - startH
+		durM := endM - startM
+		if durM < 0 {
+			durH--
+			durM += 60
+		}
+		if durH > 0 {
+			timeslot.Duration = fmt.Sprintf("%dh%dm", durH, durM)
+		} else {
+			timeslot.Duration = fmt.Sprintf("%dm", durM)
+		}
+	}
+	return &timeslot, nil
 }
 
 type Instructor struct {
