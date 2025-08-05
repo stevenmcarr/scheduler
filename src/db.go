@@ -1264,14 +1264,28 @@ func (scheduler *wmu_scheduler) DeletePrefix(prefixID int) error {
 }
 
 // UpdateUserByID updates a user's information by ID
-func (scheduler *wmu_scheduler) UpdateUserByID(userID int, username string, email string, isLoggedIn bool, administrator bool) error {
+func (scheduler *wmu_scheduler) UpdateUserByID(userID int, username string, email string, isLoggedIn bool, administrator bool, newPassword string) error {
 	if !ValidateEmail(email) {
 		return errors.New("invalid email address")
 	}
 
-	query := `UPDATE users SET username = ?, email = ?, is_logged_in = ?, administrator = ? WHERE id = ?`
-	_, err := scheduler.database.Exec(query, username, email, isLoggedIn, administrator, userID)
-	return err
+	// If password is provided, hash it and update with password
+	if newPassword != "" {
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+		if err != nil {
+			AppLogger.LogError(fmt.Sprintf("Failed to hash password for user ID %d", userID), err)
+			return err
+		}
+
+		query := `UPDATE users SET username = ?, email = ?, is_logged_in = ?, administrator = ?, password_hash = ? WHERE id = ?`
+		_, err = scheduler.database.Exec(query, username, email, isLoggedIn, administrator, string(hashedPassword), userID)
+		return err
+	} else {
+		// Update without changing password
+		query := `UPDATE users SET username = ?, email = ?, is_logged_in = ?, administrator = ? WHERE id = ?`
+		_, err := scheduler.database.Exec(query, username, email, isLoggedIn, administrator, userID)
+		return err
+	}
 }
 
 // DeleteUserByID deletes a user by ID

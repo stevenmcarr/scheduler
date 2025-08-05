@@ -399,6 +399,10 @@ func (scheduler *wmu_scheduler) SaveCoursesGin(c *gin.Context) {
 		scheduler.ExportCoursesToExcel(c)
 		return
 	}
+	if action == "detect" {
+		scheduler.DetectScheduleConflictsGin(c)
+		return
+	}
 
 	// Parse the courses JSON data from the form
 	coursesJSON := c.PostForm("courses")
@@ -2324,7 +2328,7 @@ func (scheduler *wmu_scheduler) AddUserGin(c *gin.Context) {
 		// Get the newly created user to get their ID
 		newUser, err := scheduler.GetUserByUsername(username)
 		if err == nil && newUser != nil {
-			err = scheduler.UpdateUserByID(newUser.ID, username, email, false, true)
+			err = scheduler.UpdateUserByID(newUser.ID, username, email, false, true, "")
 			if err != nil {
 				session := sessions.Default(c)
 				session.Set("error", "User created but failed to set administrator privileges")
@@ -3049,6 +3053,7 @@ func (scheduler *wmu_scheduler) SaveUsersGin(c *gin.Context) {
 		id := getIntFromInterface(userData["id"])
 		username := getStringFromInterface(userData["username"])
 		email := getStringFromInterface(userData["email"])
+		newPassword := getStringFromInterface(userData["newPassword"])
 		administrator := userData["administrator"] == true || userData["administrator"] == "true"
 
 		if id <= 0 || username == "" || email == "" {
@@ -3056,7 +3061,7 @@ func (scheduler *wmu_scheduler) SaveUsersGin(c *gin.Context) {
 			continue
 		}
 
-		err = scheduler.UpdateUserByID(id, username, email, false, administrator)
+		err = scheduler.UpdateUserByID(id, username, email, false, administrator, newPassword)
 		if err != nil {
 			errorCount++
 			continue
@@ -4074,9 +4079,8 @@ func (scheduler *wmu_scheduler) RenderAddCrosslistingPageGin(c *gin.Context) {
 	})
 }
 
-// AddCrosslistingGin handles the POST request to add a new crosslisting
+// handleAddCrosslisting handles adding a single crosslisting
 func (scheduler *wmu_scheduler) AddCrosslistingGin(c *gin.Context) {
-	// Check authentication
 	_, err := scheduler.getCurrentUser(c)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
@@ -4174,6 +4178,53 @@ func (scheduler *wmu_scheduler) AddCrosslistingGin(c *gin.Context) {
 	c.Redirect(http.StatusFound, "/scheduler/crosslistings")
 }
 
+// handleDeleteCrosslistings handles deleting multiple crosslistings
+func (scheduler *wmu_scheduler) DeleteCrosslistingsGin(c *gin.Context) {
+	_, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
+
+	// Get crosslisting IDs from form
+	crosslistingIDs := c.PostFormArray("crosslisting_ids[]")
+	if len(crosslistingIDs) == 0 {
+		session := sessions.Default(c)
+		session.Set("error", "No crosslistings selected for deletion")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/crosslistings")
+		return
+	}
+
+	var errors []string
+	deletedCount := 0
+
+	for _, crosslistingIDStr := range crosslistingIDs {
+		crosslistingID, err := strconv.Atoi(crosslistingIDStr)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("Invalid crosslisting ID: %s", crosslistingIDStr))
+			continue
+		}
+
+		err = scheduler.DeleteCrosslisting(crosslistingID)
+		if err != nil {
+			AppLogger.LogError(fmt.Sprintf("Failed to delete crosslisting %d", crosslistingID), err)
+			errors = append(errors, fmt.Sprintf("Failed to delete crosslisting ID %d: %v", crosslistingID, err))
+			continue
+		}
+		deletedCount++
+	}
+
+	session := sessions.Default(c)
+	if len(errors) > 0 {
+		session.Set("error", fmt.Sprintf("%d crosslistings deleted, %d errors occurred", deletedCount, len(errors)))
+	} else {
+		session.Set("success", fmt.Sprintf("%d crosslistings deleted successfully", deletedCount))
+	}
+	session.Save()
+	c.Redirect(http.StatusFound, "/scheduler/crosslistings")
+}
+
 // GetCoursesForScheduleAPIGin provides an API endpoint to get courses for a schedule (for AJAX calls)
 func (scheduler *wmu_scheduler) GetCoursesForScheduleAPIGin(c *gin.Context) {
 	// Check authentication
@@ -4225,50 +4276,4 @@ type CourseForCrosslist struct {
 	Days         string `json:"days"`
 	StartTime    string `json:"start_time"`
 	EndTime      string `json:"end_time"`
-}
-
-// DeleteCrosslistingGin handles deletion of a crosslisting
-func (scheduler *wmu_scheduler) DeleteCrosslistingGin(c *gin.Context) {
-	// Check authentication
-	_, err := scheduler.getCurrentUser(c)
-	if err != nil {
-		c.Redirect(http.StatusFound, "/scheduler/login")
-		return
-	}
-
-	// Get crosslisting ID from form
-	crosslistingIDStr := c.PostForm("crosslisting_id")
-	if crosslistingIDStr == "" {
-		session := sessions.Default(c)
-		session.Set("error", "No crosslisting selected for deletion")
-		session.Save()
-		c.Redirect(http.StatusFound, "/scheduler/crosslistings")
-		return
-	}
-
-	crosslistingID, err := strconv.Atoi(crosslistingIDStr)
-	if err != nil {
-		session := sessions.Default(c)
-		session.Set("error", "Invalid crosslisting ID")
-		session.Save()
-		c.Redirect(http.StatusFound, "/scheduler/crosslistings")
-		return
-	}
-
-	// Delete the crosslisting
-	err = scheduler.DeleteCrosslisting(crosslistingID)
-	if err != nil {
-		AppLogger.LogError(fmt.Sprintf("Failed to delete crosslisting %d", crosslistingID), err)
-		session := sessions.Default(c)
-		session.Set("error", "Failed to delete crosslisting: "+err.Error())
-		session.Save()
-		c.Redirect(http.StatusFound, "/scheduler/crosslistings")
-		return
-	}
-
-	// Success
-	session := sessions.Default(c)
-	session.Set("success", "Crosslisting deleted successfully")
-	session.Save()
-	c.Redirect(http.StatusFound, "/scheduler/crosslistings")
 }

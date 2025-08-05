@@ -70,7 +70,7 @@
         }
         
         /* Input and select styling */
-        input[type="text"], input[type="email"], select {
+        input[type="text"], input[type="email"], input[type="password"], select {
             width: 100%;
             padding: 4px;
             border: 1px solid #ccc;
@@ -182,6 +182,8 @@
                         </th>
                         <th class="sortable" onclick="sortTable(1)">Username</th>
                         <th>Email</th>
+                        <th>New Password</th>
+                        <th>Confirm Password</th>
                         <th>Is Logged In</th>
                         <th>Administrator</th>
                     </tr>
@@ -197,6 +199,12 @@
                         </td>
                         <td>
                             <input type="email" value="{{.Email}}" onchange="updateUser(this, 'Email')" />
+                        </td>
+                        <td>
+                            <input type="password" placeholder="New password (leave blank to keep current)" onchange="updateUser(this, 'NewPassword')" />
+                        </td>
+                        <td>
+                            <input type="password" placeholder="Confirm new password" onchange="updateUser(this, 'ConfirmPassword')" />
                         </td>
                         <td style="text-align:center;">
                             <input type="checkbox" {{if .IsLoggedIn}}checked{{end}} onchange="updateUser(this, 'IsLoggedIn')" />
@@ -237,6 +245,39 @@
             // Mark the row as modified for later saving
             const row = element.closest('tr');
             row.classList.add('modified');
+            
+            // Special handling for password fields
+            if (field === 'NewPassword' || field === 'ConfirmPassword') {
+                validatePasswordFields(row);
+            }
+        }
+
+        function validatePasswordFields(row) {
+            const newPasswordInput = row.querySelector('td:nth-child(4) input[type="password"]');
+            const confirmPasswordInput = row.querySelector('td:nth-child(5) input[type="password"]');
+            
+            if (!newPasswordInput || !confirmPasswordInput) return;
+            
+            const newPassword = newPasswordInput.value;
+            const confirmPassword = confirmPasswordInput.value;
+            
+            // Reset styles
+            newPasswordInput.style.borderColor = '#ccc';
+            confirmPasswordInput.style.borderColor = '#ccc';
+            
+            // If both fields have values, check if they match
+            if (newPassword && confirmPassword) {
+                if (newPassword !== confirmPassword) {
+                    confirmPasswordInput.style.borderColor = '#dc3545';
+                    confirmPasswordInput.title = 'Passwords do not match';
+                } else {
+                    confirmPasswordInput.style.borderColor = '#28a745';
+                    confirmPasswordInput.title = 'Passwords match';
+                }
+            } else if (newPassword && !confirmPassword) {
+                confirmPasswordInput.style.borderColor = '#ffc107';
+                confirmPasswordInput.title = 'Please confirm the new password';
+            }
         }
 
         function deleteSelected() {
@@ -296,6 +337,8 @@
             }
 
             const users = [];
+            let validationErrors = [];
+            
             modifiedRows.forEach(row => {
                 const userId = row.getAttribute('data-user-id');
                 const inputs = row.querySelectorAll('input');
@@ -303,6 +346,8 @@
                 // Extract values based on input positions and types
                 let username = '';
                 let email = '';
+                let newPassword = '';
+                let confirmPassword = '';
                 let isLoggedIn = false;
                 let administrator = false;
                 
@@ -311,26 +356,53 @@
                         username = input.value;
                     } else if (input.type === 'email') {
                         email = input.value;
+                    } else if (input.type === 'password') {
+                        // Determine which password field this is based on its position
+                        const cell = input.closest('td');
+                        const cellIndex = cell.cellIndex;
+                        if (cellIndex === 3) { // New Password column
+                            newPassword = input.value;
+                        } else if (cellIndex === 4) { // Confirm Password column
+                            confirmPassword = input.value;
+                        }
                     } else if (input.type === 'checkbox' && input.className !== 'user-select') {
                         // Determine which checkbox this is based on its position
                         const cell = input.closest('td');
                         const cellIndex = cell.cellIndex;
-                        if (cellIndex === 3) { // Is Logged In column
+                        if (cellIndex === 5) { // Is Logged In column (shifted due to password columns)
                             isLoggedIn = input.checked;
-                        } else if (cellIndex === 4) { // Administrator column
+                        } else if (cellIndex === 6) { // Administrator column (shifted due to password columns)
                             administrator = input.checked;
                         }
                     }
                 });
                 
+                // Validate passwords if provided
+                if (newPassword && newPassword !== confirmPassword) {
+                    validationErrors.push(`Password confirmation does not match for user: ${username}`);
+                    return;
+                }
+                
+                if (newPassword && newPassword.length < 6) {
+                    validationErrors.push(`Password for user ${username} must be at least 6 characters long`);
+                    return;
+                }
+                
                 users.push({
                     id: userId,
                     username: username,
                     email: email,
+                    newPassword: newPassword,
                     isLoggedIn: isLoggedIn,
                     administrator: administrator
                 });
             });
+            
+            // Check for validation errors
+            if (validationErrors.length > 0) {
+                alert('Validation errors:\n\n' + validationErrors.join('\n'));
+                return;
+            }
 
             // Get CSRF token
             const csrfToken = document.querySelector('input[name="csrf_token"]').value;

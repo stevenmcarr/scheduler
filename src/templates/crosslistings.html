@@ -147,6 +147,7 @@
             <table class="crosslistings-table">
                 <thead>
                     <tr>
+                        <th>Select</th>
                         <th>Course 1</th>
                         <th>CRN 1</th>
                         <th>Title 1</th>
@@ -162,6 +163,7 @@
                 <tbody>
                     {{range .Crosslistings}}
                     <tr class="crosslisting-pair">
+                        <td><input type="checkbox" name="crosslisting_ids[]" value="{{.ID}}"></td>
                         <td class="course-title">{{.Course1.Prefix}} {{.Course1.CourseNumber}}</td>
                         <td class="crn-cell">{{.Course1.CRN}}</td>
                         <td>{{.Course1.Title}}</td>
@@ -184,10 +186,53 @@
         </div>
         {{end}}
         
+       
         <div style="text-align: right; margin-top: 30px;">
             <a href="/scheduler/courses" class="back-button" style="margin-right: 10px;">← Back to Courses</a>
-            <a href="/scheduler/add_crosslisting" class="back-button" style="background: #8B4513;">+ Add Cross Listing</a>
-        </div>
+            <a href="/scheduler/add_crosslisting" class="back-button" style="background: #8B4513; margin-right: 10px;">+ Add Cross Listing</a>
+            {{if .Crosslistings}}
+            <button type="button" class="back-button" onclick="deleteSelected()" style="background: #8B4513;">Delete Selected</button>
+            {{end}}
+         </div>
+        
+        <!-- Hidden form for delete functionality -->
+        {{if .Crosslistings}}
+        <form id="deleteCrosslistingsForm" action="/scheduler/crosslisting" method="post" style="display: none;">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <input type="hidden" name="action" value="delete">
+            <!-- Hidden inputs for crosslisting IDs will be added by JavaScript -->
+        </form>
+        {{end}}
+        
+        <script>
+            function deleteSelected() {
+                const checkboxes = document.querySelectorAll('input[name="crosslisting_ids[]"]:checked');
+                
+                if (checkboxes.length === 0) {
+                    alert('Please select at least one crosslisting to delete.');
+                    return;
+                }
+                
+                if (!confirm(`Are you sure you want to delete ${checkboxes.length} selected crosslisting(s)?`)) {
+                    return;
+                }
+                
+                const form = document.getElementById('deleteCrosslistingsForm');
+                // Remove previous hidden inputs
+                Array.from(form.querySelectorAll('input[name="crosslisting_ids[]"]')).forEach(e => e.remove());
+                
+                // Add crosslisting IDs to delete
+                checkboxes.forEach(checkbox => {
+                    const input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.name = 'crosslisting_ids[]';
+                    input.value = checkbox.value;
+                    form.appendChild(input);
+                });
+                
+                form.submit();
+            }
+        </script>
     </div>
 </body>
 </html>
