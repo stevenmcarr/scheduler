@@ -28,6 +28,28 @@ go.work.sum
 
 # env file
 .env
+.env.*
+!.env.example
+
+# Security: Never commit sensitive files
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+*password*
+*secret*
+*credential*
+*auth*
+config/production.yml
+config/secrets.yml
+
+# Database dumps and backups
+*.sql
+*.dump
+*.backup
+backup_*
+*_backup*
 
 # Editor/IDE
 # .idea/
