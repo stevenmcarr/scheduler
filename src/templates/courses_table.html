@@ -1,0 +1,256 @@
+{{define "courses_table"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Course Schedule Table - WMU Course Scheduler</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+        .content { margin: 24px; }
+        
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .page-header h1 {
+            margin: 0;
+            color: #8B4513;
+        }
+        
+        /* Table container with scrollbars */
+        .table-container {
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            overflow: auto;
+            max-height: 80vh;
+            margin-bottom: 24px;
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin: 0;
+            min-width: 800px;
+        }
+        
+        th, td { 
+            border: 1px solid #ccc; 
+            padding: 6px; 
+            text-align: left;
+            vertical-align: top;
+            font-size: 12px;
+        }
+        
+        th { 
+            background-color: #8B4513;
+            color: white;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            border-bottom: 2px solid #654321;
+            font-weight: bold;
+            text-align: center;
+        }
+        
+        /* Time column styling */
+        .time-column {
+            background-color: #f8f9fa;
+            font-weight: bold;
+            text-align: center;
+            width: 80px;
+            position: sticky;
+            left: 0;
+            z-index: 5;
+            border-right: 2px solid #8B4513;
+        }
+        
+        /* Day column headers */
+        .day-header {
+            width: 180px;
+            min-width: 180px;
+        }
+        
+        /* Course cell styling */
+        .course-cell {
+            height: 50px;
+            min-height: 50px;
+            padding: 4px;
+            background-color: white;
+        }
+        
+        .course-item {
+            background-color: #e3f2fd;
+            border: 1px solid #1976d2;
+            border-radius: 3px;
+            padding: 2px 4px;
+            margin: 1px 0;
+            font-size: 10px;
+            line-height: 1.1;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        
+        .course-item:hover {
+            background-color: #bbdefb;
+        }
+        
+        .course-prefix {
+            font-weight: bold;
+            color: #1565c0;
+        }
+        
+        .course-title {
+            color: #424242;
+            font-size: 9px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        /* Zebra striping for time rows */
+        tbody tr:nth-child(even) .course-cell {
+            background-color: #f9f9f9;
+        }
+        
+        tbody tr:hover .course-cell {
+            background-color: #fff3e0;
+        }
+        
+        /* Button styling */
+        .button-row { 
+            display: flex; 
+            gap: 12px; 
+            justify-content: flex-end; 
+            margin-bottom: 20px;
+        }
+        
+        button { 
+            padding: 10px 20px; 
+            font-size: 14px; 
+            cursor: pointer;
+            border: 1px solid #8B4513;
+            background-color: #8B4513;
+            color: white;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+        }
+        
+        button:hover {
+            background-color: #654321;
+        }
+        
+        /* Print styles */
+        @media print {
+            .button-row { display: none; }
+            .table-container { max-height: none; overflow: visible; }
+            body { margin: 0; }
+            .content { margin: 12px; }
+        }
+    </style>
+</head>
+<body>
+    {{template "navbar" .}}
+    <div class="content">
+        <div class="page-header">
+            <h1>Course Schedule Table</h1>
+        </div>
+        
+        {{if .Success}}
+        <div style="background-color: #d4edda; color: #155724; padding: 10px; margin-bottom: 20px; border: 1px solid #c3e6cb; border-radius: 4px;">
+            {{.Success}}
+        </div>
+        {{end}}
+        
+        {{if .Error}}
+        <div style="background-color: #f8d7da; color: #721c24; padding: 10px; margin-bottom: 20px; border: 1px solid #f5c6cb; border-radius: 4px;">
+            {{.Error}}
+        </div>
+        {{end}}
+        
+        <div class="table-container">
+            <table id="schedule-table">
+                <thead>
+                    <tr>
+                        <th class="time-column">Time</th>
+                        <th class="day-header">Monday</th>
+                        <th class="day-header">Tuesday</th>
+                        <th class="day-header">Wednesday</th>
+                        <th class="day-header">Thursday</th>
+                        <th class="day-header">Friday</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range $timeSlot := .TimeSlots}}
+                    <tr>
+                        <td class="time-column">{{$timeSlot}}</td>
+                        <td class="course-cell">
+                            {{$courses := index $.Schedule.Monday $timeSlot}}
+                            {{range $courses}}
+                            <div class="course-item" onclick="showCourseDetails('{{.CRN}}')">
+                                <div class="course-prefix">{{.Prefix}}{{.CourseNumber}}</div>
+                                <div class="course-title">{{.Title}}</div>
+                            </div>
+                            {{end}}
+                        </td>
+                        <td class="course-cell">
+                            {{$courses := index $.Schedule.Tuesday $timeSlot}}
+                            {{range $courses}}
+                            <div class="course-item" onclick="showCourseDetails('{{.CRN}}')">
+                                <div class="course-prefix">{{.Prefix}}{{.CourseNumber}}</div>
+                                <div class="course-title">{{.Title}}</div>
+                            </div>
+                            {{end}}
+                        </td>
+                        <td class="course-cell">
+                            {{$courses := index $.Schedule.Wednesday $timeSlot}}
+                            {{range $courses}}
+                            <div class="course-item" onclick="showCourseDetails('{{.CRN}}')">
+                                <div class="course-prefix">{{.Prefix}}{{.CourseNumber}}</div>
+                                <div class="course-title">{{.Title}}</div>
+                            </div>
+                            {{end}}
+                        </td>
+                        <td class="course-cell">
+                            {{$courses := index $.Schedule.Thursday $timeSlot}}
+                            {{range $courses}}
+                            <div class="course-item" onclick="showCourseDetails('{{.CRN}}')">
+                                <div class="course-prefix">{{.Prefix}}{{.CourseNumber}}</div>
+                                <div class="course-title">{{.Title}}</div>
+                            </div>
+                            {{end}}
+                        </td>
+                        <td class="course-cell">
+                            {{$courses := index $.Schedule.Friday $timeSlot}}
+                            {{range $courses}}
+                            <div class="course-item" onclick="showCourseDetails('{{.CRN}}')">
+                                <div class="course-prefix">{{.Prefix}}{{.CourseNumber}}</div>
+                                <div class="course-title">{{.Title}}</div>
+                            </div>
+                            {{end}}
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+        <div class="button-row">
+            <button type="button" onclick="window.print()">🖨️ Print Table</button>
+            <button type="button" onclick="window.location.href='/scheduler/courses'">← Back to Courses</button>
+        </div>
+        
+    </div>
+
+    <script>
+        function showCourseDetails(crn) {
+            // Redirect to courses page and highlight the specific course
+            window.location.href = '/scheduler/courses?highlight=' + crn;
+        }
+    </script>
+</body>
+</html>
+{{end}}

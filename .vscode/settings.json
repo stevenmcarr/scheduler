@@ -8,5 +8,29 @@
   "emmet.includeLanguages": {
     "html": "html"
   },
-  "html.format.enable": false
+  "html.format.enable": false,
+  
+  // Go-specific settings
+  "go.gopath": "",
+  "go.goroot": "",
+  "go.testFlags": ["-v"],
+  "go.buildOnSave": "off",
+  "go.lintOnSave": "package",
+  "go.vetOnSave": "package",
+  "go.formatTool": "goimports",
+  "go.useLanguageServer": true,
+  "go.alternateTools": {
+    "go": "go"
+  },
+  
+  // Working directory for integrated terminal
+  "terminal.integrated.cwd": "${workspaceFolder}",
+  
+  // File watching for the project
+  "files.watcherExclude": {
+    "**/scheduler": true,
+    "**/tmp/**": true,
+    "**/certs/**": true,
+    "**/.git/**": true
+  }
 }

@@ -134,22 +134,22 @@ CREATE TABLE time_slots (
 CREATE TABLE courses (
     id INT AUTO_INCREMENT PRIMARY KEY,
     crn INT NOT NULL UNIQUE,
-    section VARCHAR(10) NOT NULL,
+    section INT NOT NULL,
     schedule_id INT NOT NULL,
-    course_number VARCHAR(10) NOT NULL,
+    course_number INT NOT NULL,
     title VARCHAR(200) NOT NULL,
-    min_credits INT DEFAULT 3,
-    max_credits INT DEFAULT 3,
-    min_contact INT DEFAULT 3,
-    max_contact INT DEFAULT 3,
+    min_credits INT DEFAULT 0,
+    max_credits INT DEFAULT 0,
+    min_contact INT DEFAULT 0,
+    max_contact INT DEFAULT 0,
     cap INT DEFAULT 25,
     approval BOOLEAN DEFAULT FALSE,
     lab BOOLEAN DEFAULT FALSE,
     instructor_id INT NULL,
     timeslot_id INT NULL,
     room_id INT NULL,
-    mode ENUM('In-Person', 'Online', 'Hybrid', 'TBD') DEFAULT 'In-Person',
-    status ENUM('Added', 'Modified', 'Deleted', 'Cancelled', 'Active') DEFAULT 'Added',
+    mode ENUM('IP', 'FSO', 'PSO', 'H', 'CLAS') DEFAULT 'IP',
+    status ENUM('Added', 'Deleted', 'Removed', 'Scheduled', 'Updated') DEFAULT 'Scheduled',
     comment TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -167,84 +167,42 @@ CREATE TABLE courses (
     INDEX idx_mode (mode)
 ) ENGINE=InnoDB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
+-- Create crosslistings table to track course cross-listing relationships
+CREATE TABLE crosslistings (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    crn1 INT NOT NULL,
+    crn2 INT NOT NULL,
+    schedule_id1 INT NOT NULL,
+    schedule_id2 INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (crn1) REFERENCES courses(crn) ON DELETE CASCADE,
+    FOREIGN KEY (crn2) REFERENCES courses(crn) ON DELETE CASCADE,
+    FOREIGN KEY (schedule_id1) REFERENCES schedules(id) ON DELETE CASCADE,
+    FOREIGN KEY (schedule_id2) REFERENCES schedules(id) ON DELETE CASCADE,
+    INDEX idx_crn1 (crn1),
+    INDEX idx_crn2 (crn2),
+    INDEX idx_schedule_id1 (schedule_id1),
+    INDEX idx_schedule_id2 (schedule_id2),
+    INDEX idx_crosslisting_pair (crn1, crn2),
+    INDEX idx_schedule_pair (schedule_id1, schedule_id2),
+    UNIQUE INDEX unique_crosslisting (crn1, crn2)
+) ENGINE=InnoDB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
 -- Insert default data
 
 -- Insert default departments
 INSERT INTO departments (name) VALUES
-('Computer Science'),
-('Mathematics'),
-('Engineering'),
-('Business'),
-('Liberal Arts'),
-('Natural Sciences');
+('Computer Science');
 
 -- Insert default prefixes
 INSERT INTO prefixes (prefix, department_id) VALUES
 ('CS', 1),    -- Computer Science
-('MATH', 2),  -- Mathematics
-('ENGR', 3),  -- Engineering
-('BUS', 4),   -- Business
-('ENG', 5),   -- Liberal Arts (English)
-('CHEM', 6),  -- Natural Sciences (Chemistry)
-('PHYS', 6),  -- Natural Sciences (Physics)
-('BIO', 6);   -- Natural Sciences (Biology)
+('CYCS', 1);  -- Computer Science
 
--- Insert default time slots
-INSERT INTO time_slots (start_time, end_time, M, T, W, R, F) VALUES
-('08:00:00', '09:15:00', TRUE, FALSE, TRUE, FALSE, FALSE),   -- MW 8:00-9:15
-('09:30:00', '10:45:00', TRUE, FALSE, TRUE, FALSE, FALSE),   -- MW 9:30-10:45
-('11:00:00', '12:15:00', TRUE, FALSE, TRUE, FALSE, FALSE),   -- MW 11:00-12:15
-('12:30:00', '13:45:00', TRUE, FALSE, TRUE, FALSE, FALSE),   -- MW 12:30-1:45
-('14:00:00', '15:15:00', TRUE, FALSE, TRUE, FALSE, FALSE),   -- MW 2:00-3:15
-('15:30:00', '16:45:00', TRUE, FALSE, TRUE, FALSE, FALSE),   -- MW 3:30-4:45
-('08:00:00', '09:15:00', FALSE, TRUE, FALSE, TRUE, FALSE),   -- TR 8:00-9:15
-('09:30:00', '10:45:00', FALSE, TRUE, FALSE, TRUE, FALSE),   -- TR 9:30-10:45
-('11:00:00', '12:15:00', FALSE, TRUE, FALSE, TRUE, FALSE),   -- TR 11:00-12:15
-('12:30:00', '13:45:00', FALSE, TRUE, FALSE, TRUE, FALSE),   -- TR 12:30-1:45
-('14:00:00', '15:15:00', FALSE, TRUE, FALSE, TRUE, FALSE),   -- TR 2:00-3:15
-('15:30:00', '16:45:00', FALSE, TRUE, FALSE, TRUE, FALSE),   -- TR 3:30-4:45
-('09:00:00', '11:50:00', TRUE, FALSE, FALSE, FALSE, FALSE),   -- M 9:00-11:50 (Lab)
-('13:00:00', '15:50:00', TRUE, FALSE, FALSE, FALSE, FALSE),   -- M 1:00-3:50 (Lab)
-('09:00:00', '11:50:00', FALSE, TRUE, FALSE, FALSE, FALSE),   -- T 9:00-11:50 (Lab)
-('13:00:00', '15:50:00', FALSE, TRUE, FALSE, FALSE, FALSE),   -- T 1:00-3:50 (Lab)
-('09:00:00', '11:50:00', FALSE, FALSE, TRUE, FALSE, FALSE),   -- W 9:00-11:50 (Lab)
-('13:00:00', '15:50:00', FALSE, FALSE, TRUE, FALSE, FALSE),   -- W 1:00-3:50 (Lab)
-('09:00:00', '11:50:00', FALSE, FALSE, FALSE, TRUE, FALSE),   -- R 9:00-11:50 (Lab)
-('13:00:00', '15:50:00', FALSE, FALSE, FALSE, TRUE, FALSE),   -- R 1:00-3:50 (Lab)
-('09:00:00', '11:50:00', FALSE, FALSE, FALSE, FALSE, TRUE),   -- F 9:00-11:50 (Lab)
-('13:00:00', '15:50:00', FALSE, FALSE, FALSE, FALSE, TRUE);   -- F 1:00-3:50 (Lab)
-
--- Insert default rooms
 INSERT INTO rooms (building, room_number, capacity, computer_lab, dedicated_lab) VALUES
-('FLOYD', 'D0109', 30, TRUE, FALSE),
-('FLOYD', 'D0110', 25, FALSE, FALSE),
-('FLOYD', 'D0111', 35, TRUE, FALSE),
-('FLOYD', 'D0112', 40, FALSE, FALSE),
-('FLOYD', 'D0201', 30, TRUE, TRUE),
-('FLOYD', 'D0202', 25, FALSE, FALSE),
-('FLOYD', 'D0203', 50, FALSE, FALSE),
-('SCIENCE', 'S101', 30, FALSE, TRUE),
-('SCIENCE', 'S102', 25, FALSE, FALSE),
-('SCIENCE', 'S201', 40, TRUE, FALSE),
-('ENGINEERING', 'E101', 35, TRUE, FALSE),
-('ENGINEERING', 'E102', 30, FALSE, TRUE),
-('BUSINESS', 'B101', 45, FALSE, FALSE),
-('BUSINESS', 'B102', 40, TRUE, FALSE);
-
--- Insert default admin user
--- Password: AdminPassword123! (hashed with bcrypt)
-INSERT INTO users (username, email, password, administrator) VALUES
-('admin', 'admin@wmich.edu', '$2a$10$YourHashedPasswordHereForAdmin123', TRUE);
-
--- Create a sample instructor for each department
-INSERT INTO instructors (first_name, last_name, department_id, status) VALUES
-('John', 'Smith', 1, 'Full Time'),
-('Jane', 'Doe', 1, 'Full Time'),
-('Bob', 'Johnson', 2, 'Full Time'),
-('Alice', 'Williams', 3, 'Part Time'),
-('Charlie', 'Brown', 4, 'Full Time'),
-('Diana', 'Davis', 5, 'Part Time'),
-('Eve', 'Miller', 6, 'Full Time');
+('FLOYD', 'D0109', 150, TRUE, FALSE),
+('FLOYD', 'D0115', 75, TRUE, TRUE);
 
 -- Create indexes for performance optimization
 CREATE INDEX idx_courses_composite ON courses (schedule_id, status, course_number);

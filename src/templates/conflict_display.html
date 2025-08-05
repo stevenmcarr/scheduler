@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Schedule Conflicts - WMU Course Scheduler</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+        .content { margin: 24px; }
+        
+        .page-header {
+            margin-bottom: 20px;
+        }
+        
+        .page-header h1 {
+            margin: 0;
+            color: #8B4513;
+        }
+        
+        .schedule-info {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            border-left: 4px solid #8B4513;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        
+        .conflict-section {
+            margin-bottom: 30px;
+        }
+        
+        .conflict-section h2 {
+            color: #8B4513;
+            margin-bottom: 15px;
+            padding-bottom: 5px;
+            border-bottom: 2px solid #8B4513;
+        }
+        
+        .conflict-card {
+            background-color: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .conflict-type {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+        }
+        
+        .conflict-instructor {
+            background-color: #dc3545;
+            color: white;
+        }
+        
+        .conflict-room {
+            background-color: #fd7e14;
+            color: white;
+        }
+        
+        .course-pair {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 10px;
+        }
+        
+        .course-detail {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            border-left: 4px solid #6c757d;
+        }
+        
+        .course-detail h4 {
+            margin: 0 0 10px 0;
+            color: #333;
+        }
+        
+        .course-detail .course-info {
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        
+        .course-detail .course-info span {
+            display: block;
+            margin-bottom: 2px;
+        }
+        
+        .time-info {
+            font-weight: bold;
+            color: #dc3545;
+        }
+        
+        .no-conflicts {
+            text-align: center;
+            padding: 40px;
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+        
+        .summary {
+            background-color: #e9ecef;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        
+        .button-row {
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+            margin-top: 30px;
+        }
+        
+        button {
+            padding: 10px 20px;
+            font-size: 14px;
+            cursor: pointer;
+            border: 1px solid #8B4513;
+            background-color: #8B4513;
+            color: white;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+        }
+        
+        button:hover {
+            background-color: #654321;
+        }
+        
+        .btn-secondary {
+            background-color: #6c757d;
+            border-color: #6c757d;
+        }
+        
+        .btn-secondary:hover {
+            background-color: #5a6268;
+        }
+    </style>
+</head>
+<body>
+    {{template "navbar" .}}
+    <div class="content">
+        <div class="page-header">
+            <h1>Schedule Conflict Report</h1>
+        </div>
+        
+        <div class="schedule-info">
+            <strong>Comparing:</strong><br>
+            Schedule 1: {{.Schedule1Name}}<br>
+            Schedule 2: {{.Schedule2Name}}
+        </div>
+        
+        <div class="summary">
+            Found {{len .Conflicts.InstructorConflicts}} instructor conflict(s) and {{len .Conflicts.RoomConflicts}} room conflict(s)
+        </div>
+        
+        {{if and (eq (len .Conflicts.InstructorConflicts) 0) (eq (len .Conflicts.RoomConflicts) 0)}}
+        <div class="no-conflicts">
+            🎉 No conflicts detected between the selected schedules!
+        </div>
+        {{else}}
+        
+        {{if .Conflicts.InstructorConflicts}}
+        <div class="conflict-section">
+            <h2>Instructor Conflicts ({{len .Conflicts.InstructorConflicts}})</h2>
+            {{range .Conflicts.InstructorConflicts}}
+            <div class="conflict-card">
+                <span class="conflict-type conflict-instructor">Instructor Conflict</span>
+                <div class="course-pair">
+                    <div class="course-detail">
+                        <h4>{{.Course1.Prefix}} {{.Course1.CourseNumber}} - {{.Course1.Section}}</h4>
+                        <div class="course-info">
+                            <span><strong>Title:</strong> {{.Course1.Title}}</span>
+                            <span><strong>CRN:</strong> {{.Course1.CRN}}</span>
+                            <span><strong>Mode:</strong> {{.Course1.Mode}}</span>
+                            <span class="time-info">
+                                <strong>Time:</strong> 
+                                {{.Course1.TimeSlot.StartTime}} - {{.Course1.TimeSlot.EndTime}}
+                                {{if .Course1.TimeSlot.Monday}}M{{end}}{{if .Course1.TimeSlot.Tuesday}}T{{end}}{{if .Course1.TimeSlot.Wednesday}}W{{end}}{{if .Course1.TimeSlot.Thursday}}R{{end}}{{if .Course1.TimeSlot.Friday}}F{{end}}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="course-detail">
+                        <h4>{{.Course2.Prefix}} {{.Course2.CourseNumber}} - {{.Course2.Section}}</h4>
+                        <div class="course-info">
+                            <span><strong>Title:</strong> {{.Course2.Title}}</span>
+                            <span><strong>CRN:</strong> {{.Course2.CRN}}</span>
+                            <span><strong>Mode:</strong> {{.Course2.Mode}}</span>
+                            <span class="time-info">
+                                <strong>Time:</strong> 
+                                {{.Course2.TimeSlot.StartTime}} - {{.Course2.TimeSlot.EndTime}}
+                                {{if .Course2.TimeSlot.Monday}}M{{end}}{{if .Course2.TimeSlot.Tuesday}}T{{end}}{{if .Course2.TimeSlot.Wednesday}}W{{end}}{{if .Course2.TimeSlot.Thursday}}R{{end}}{{if .Course2.TimeSlot.Friday}}F{{end}}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {{end}}
+        </div>
+        {{end}}
+        
+        {{if .Conflicts.RoomConflicts}}
+        <div class="conflict-section">
+            <h2>Room Conflicts ({{len .Conflicts.RoomConflicts}})</h2>
+            {{range .Conflicts.RoomConflicts}}
+            <div class="conflict-card">
+                <span class="conflict-type conflict-room">Room Conflict</span>
+                <div class="course-pair">
+                    <div class="course-detail">
+                        <h4>{{.Course1.Prefix}} {{.Course1.CourseNumber}} - {{.Course1.Section}}</h4>
+                        <div class="course-info">
+                            <span><strong>Title:</strong> {{.Course1.Title}}</span>
+                            <span><strong>CRN:</strong> {{.Course1.CRN}}</span>
+                            <span><strong>Mode:</strong> {{.Course1.Mode}}</span>
+                            <span class="time-info">
+                                <strong>Time:</strong> 
+                                {{.Course1.TimeSlot.StartTime}} - {{.Course1.TimeSlot.EndTime}}
+                                {{if .Course1.TimeSlot.Monday}}M{{end}}{{if .Course1.TimeSlot.Tuesday}}T{{end}}{{if .Course1.TimeSlot.Wednesday}}W{{end}}{{if .Course1.TimeSlot.Thursday}}R{{end}}{{if .Course1.TimeSlot.Friday}}F{{end}}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="course-detail">
+                        <h4>{{.Course2.Prefix}} {{.Course2.CourseNumber}} - {{.Course2.Section}}</h4>
+                        <div class="course-info">
+                            <span><strong>Title:</strong> {{.Course2.Title}}</span>
+                            <span><strong>CRN:</strong> {{.Course2.CRN}}</span>
+                            <span><strong>Mode:</strong> {{.Course2.Mode}}</span>
+                            <span class="time-info">
+                                <strong>Time:</strong> 
+                                {{.Course2.TimeSlot.StartTime}} - {{.Course2.TimeSlot.EndTime}}
+                                {{if .Course2.TimeSlot.Monday}}M{{end}}{{if .Course2.TimeSlot.Tuesday}}T{{end}}{{if .Course2.TimeSlot.Wednesday}}W{{end}}{{if .Course2.TimeSlot.Thursday}}R{{end}}{{if .Course2.TimeSlot.Friday}}F{{end}}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {{end}}
+        </div>
+        {{end}}
+        
+        {{end}}
+        
+        <div class="button-row">
+            <button type="button" class="btn-secondary" onclick="window.location.href='/scheduler'">Return to Schedules</button>
+            <button type="button" onclick="window.location.href='/scheduler/conflicts'">Check Other Conflicts</button>
+        </div>
+    </div>
+</body>
+</html>

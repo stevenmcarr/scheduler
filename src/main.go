@@ -20,21 +20,29 @@ var AppLogger *Logger
 // Initialize custom logger
 func initLogger() error {
 	logFile, err := os.OpenFile("/var/log/scheduler/scheduler.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	if err != nil {
-		return fmt.Errorf("failed to open log file: %v", err)
-	}
+	var multiWriter io.Writer
 
-	// Create multi-writer to write to both file and stdout
-	multiWriter := io.MultiWriter(os.Stdout, logFile)
+	if err != nil {
+		// If we can't open the log file, fall back to stdout only
+		multiWriter = os.Stdout
+		// Still create the AppLogger, but warn about the fallback
+		AppLogger = &Logger{
+			Logger: log.New(multiWriter, "", log.Ldate|log.Ltime|log.Lshortfile),
+		}
+		// Use the newly created AppLogger to log the warning
+		AppLogger.LogWarning(fmt.Sprintf("Failed to open log file, using stdout only: %v", err))
+	} else {
+		// Create multi-writer to write to both file and stdout
+		multiWriter = io.MultiWriter(os.Stdout, logFile)
+		// Create custom logger
+		AppLogger = &Logger{
+			Logger: log.New(multiWriter, "", log.Ldate|log.Ltime|log.Lshortfile),
+		}
+	}
 
 	// Set up the standard log package
 	log.SetOutput(multiWriter)
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
-
-	// Create custom logger
-	AppLogger = &Logger{
-		Logger: log.New(multiWriter, "", log.Ldate|log.Ltime|log.Lshortfile),
-	}
 
 	return nil
 }
@@ -69,17 +77,19 @@ type wmu_scheduler struct {
 
 func main() {
 	// Initialize logging
-	err := initLogger()
-	if err != nil {
-		log.Printf("Failed to initialize logger: %v", err)
-		log.Println("Continuing with stdout logging...")
-	}
+	initLogger() // Now always succeeds, may fallback to stdout-only logging
 
 	AppLogger.LogInfo("Starting WMU Course Scheduler...")
 
 	// Load environment variables from .env file
+	// Check if a custom env file is specified
+	envFile := os.Getenv("ENV_FILE")
+	if envFile == "" {
+		envFile = ".env" // default
+	}
+
 	// Try multiple paths for .env file
-	envPaths := []string{".env", "../.env", "/var/www/html/scheduler/.env"}
+	envPaths := []string{envFile, ".env", "../.env", "/var/www/html/scheduler/.env"}
 	var envErr error
 	for _, path := range envPaths {
 		envErr = godotenv.Load(path)
@@ -90,7 +100,8 @@ func main() {
 	}
 	if envErr != nil {
 		AppLogger.LogError("Error loading .env file from all paths", envErr)
-		log.Fatal("Error loading .env file")
+		// Use direct os.Exit instead of log.Fatal to avoid duplicate logging
+		os.Exit(1)
 	}
 
 	// Get database connection parameters from environment variables
@@ -101,7 +112,7 @@ func main() {
 
 	if dbUser == "" || dbPassword == "" || dbName == "" {
 		AppLogger.LogError("Missing required database environment variables", nil)
-		log.Fatal("Missing required database environment variables")
+		os.Exit(1)
 	}
 
 	if serverPort == "" {
@@ -115,7 +126,7 @@ func main() {
 	database, err := ConnectMySQL(dbUser, dbPassword, dbName)
 	if err != nil {
 		AppLogger.LogError("Failed to connect to database", err)
-		log.Fatalf("Failed to connect to database: %v", err)
+		os.Exit(1)
 	}
 
 	AppLogger.LogInfo("Database connection established successfully")
@@ -137,11 +148,45 @@ func main() {
 		database.Close()
 	}()
 
-	// Start server with or without TLS
-	if tlsEnabled == "true" && tlsCertFile != "" && tlsKeyFile != "" {
-		AppLogger.LogInfo(fmt.Sprintf("Starting HTTPS server on port %s...", serverPort))
-		AppLogger.LogInfo(fmt.Sprintf("Using TLS cert: %s", tlsCertFile))
-		err = r.RunTLS(":"+serverPort, tlsCertFile, tlsKeyFile)
+	// Start server with TLS if enabled
+	if tlsEnabled == "true" {
+		var certFile, keyFile string
+		var tlsSource string
+
+		// Check for Let's Encrypt certificates first
+		if tlsCertFile != "" && tlsKeyFile != "" {
+			// Use environment-specified certificates
+			if _, err := os.Stat(tlsCertFile); err == nil {
+				if _, err := os.Stat(tlsKeyFile); err == nil {
+					certFile = tlsCertFile
+					keyFile = tlsKeyFile
+					tlsSource = "environment configuration"
+				}
+			}
+		}
+
+		// Fall back to self-signed certificate
+		if certFile == "" {
+			selfSignedCert := "certs/server.crt"
+			selfSignedKey := "certs/server.key"
+			if _, err := os.Stat(selfSignedCert); err == nil {
+				if _, err := os.Stat(selfSignedKey); err == nil {
+					certFile = selfSignedCert
+					keyFile = selfSignedKey
+					tlsSource = "self-signed"
+				}
+			}
+		}
+
+		if certFile != "" && keyFile != "" {
+			AppLogger.LogInfo(fmt.Sprintf("Starting HTTPS server on port %s...", serverPort))
+			AppLogger.LogInfo(fmt.Sprintf("Using %s TLS certificate: %s", tlsSource, certFile))
+			err = r.RunTLS(":"+serverPort, certFile, keyFile)
+		} else {
+			AppLogger.LogWarning("TLS enabled but no valid certificates found, falling back to HTTP")
+			AppLogger.LogInfo(fmt.Sprintf("Starting HTTP server on port %s...", serverPort))
+			err = r.Run(":" + serverPort)
+		}
 	} else {
 		AppLogger.LogInfo(fmt.Sprintf("Starting HTTP server on port %s...", serverPort))
 		err = r.Run(":" + serverPort)
@@ -149,7 +194,7 @@ func main() {
 
 	if err != nil {
 		AppLogger.LogError("Failed to start server", err)
-		log.Fatalf("Failed to start server: %v", err)
+		os.Exit(1)
 	}
 }
 

@@ -579,14 +579,26 @@ func (scheduler *wmu_scheduler) GetAllTimeSlots() ([]TimeSlot, error) {
 		var startHours, startMinutes, endHours, endMinutes int
 		if len(startTimeParts) >= 2 {
 			startHours, err1 = strconv.Atoi(startTimeParts[0])
+			if err1 != nil {
+				return nil, err1
+			}
 			startMinutes, err1 = strconv.Atoi(startTimeParts[1])
+			if err1 != nil {
+				return nil, err1
+			}
 		} else {
 			err1 = fmt.Errorf("invalid start time format")
 			return nil, err1
 		}
 		if len(endTimeParts) >= 2 {
 			endHours, err2 = strconv.Atoi(endTimeParts[0])
+			if err2 != nil {
+				return nil, err2
+			}
 			endMinutes, err2 = strconv.Atoi(endTimeParts[1])
+			if err2 != nil {
+				return nil, err2
+			}
 		} else {
 			err2 = fmt.Errorf("invalid end time format")
 			return nil, err2
@@ -606,6 +618,60 @@ func (scheduler *wmu_scheduler) GetAllTimeSlots() ([]TimeSlot, error) {
 	}
 
 	return timeslots, nil
+}
+
+func (scheduler *wmu_scheduler) GetTimeSlotById(timeslotID int) (*TimeSlot, error) {
+	var timeslot TimeSlot
+	err := scheduler.database.QueryRow(
+		`SELECT id, start_time, end_time, M, T, W, R, F FROM time_slots WHERE id = ?`,
+		timeslotID,
+	).Scan(
+		&timeslot.ID, &timeslot.StartTime, &timeslot.EndTime,
+		&timeslot.Monday, &timeslot.Tuesday, &timeslot.Wednesday, &timeslot.Thursday, &timeslot.Friday,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	timeslot.Days = ""
+	if timeslot.Monday {
+		timeslot.Days += "M"
+	}
+	if timeslot.Tuesday {
+		timeslot.Days += "T"
+	}
+	if timeslot.Wednesday {
+		timeslot.Days += "W"
+	}
+	if timeslot.Thursday {
+		timeslot.Days += "R"
+	}
+	if timeslot.Friday {
+		timeslot.Days += "F"
+	}
+	// Calculate duration
+	startParts := strings.Split(timeslot.StartTime, ":")
+	endParts := strings.Split(timeslot.EndTime, ":")
+	if len(startParts) == 2 && len(endParts) == 2 {
+		startH, _ := strconv.Atoi(startParts[0])
+		startM, _ := strconv.Atoi(startParts[1])
+		endH, _ := strconv.Atoi(endParts[0])
+		endM, _ := strconv.Atoi(endParts[1])
+		durH := endH - startH
+		durM := endM - startM
+		if durM < 0 {
+			durH--
+			durM += 60
+		}
+		if durH > 0 {
+			timeslot.Duration = fmt.Sprintf("%dh%dm", durH, durM)
+		} else {
+			timeslot.Duration = fmt.Sprintf("%dm", durM)
+		}
+	}
+	return &timeslot, nil
 }
 
 type Instructor struct {
@@ -1213,4 +1279,221 @@ func (scheduler *wmu_scheduler) DeleteUserByID(userID int) error {
 	query := `DELETE FROM users WHERE id = ?`
 	_, err := scheduler.database.Exec(query, userID)
 	return err
+}
+
+// CourseScheduleItem represents a course with all needed details for the schedule table
+type CourseScheduleItem struct {
+	CRN            int
+	Prefix         string
+	CourseNumber   string
+	Title          string
+	InstructorName string
+	StartTime      string
+	EndTime        string
+	Monday         bool
+	Tuesday        bool
+	Wednesday      bool
+	Thursday       bool
+	Friday         bool
+}
+
+// GetCoursesWithScheduleData retrieves all courses with their time slot and instructor information
+func (scheduler *wmu_scheduler) GetCoursesWithScheduleData() ([]CourseScheduleItem, error) {
+	query := `
+		SELECT c.crn, p.prefix, c.course_number, c.title, 
+			   COALESCE(i.first_name, '') as instructor_first,
+			   COALESCE(i.last_name, '') as instructor_last,
+			   COALESCE(ts.start_time, '') as start_time,
+			   COALESCE(ts.end_time, '') as end_time,
+			   COALESCE(ts.M, 0) as monday,
+			   COALESCE(ts.T, 0) as tuesday,
+			   COALESCE(ts.W, 0) as wednesday,
+			   COALESCE(ts.R, 0) as thursday,
+			   COALESCE(ts.F, 0) as friday
+		FROM courses c
+		JOIN schedules s ON c.schedule_id = s.id
+		JOIN prefixes p ON s.prefix_id = p.id
+		LEFT JOIN instructors i ON c.instructor_id = i.id
+		LEFT JOIN time_slots ts ON c.timeslot_id = ts.id
+		WHERE c.status != 'Deleted'
+		ORDER BY ts.start_time, p.prefix, c.course_number
+	`
+
+	rows, err := scheduler.database.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var courses []CourseScheduleItem
+	for rows.Next() {
+		var course CourseScheduleItem
+		var instructorFirst, instructorLast string
+
+		err := rows.Scan(
+			&course.CRN, &course.Prefix, &course.CourseNumber, &course.Title,
+			&instructorFirst, &instructorLast,
+			&course.StartTime, &course.EndTime,
+			&course.Monday, &course.Tuesday, &course.Wednesday, &course.Thursday, &course.Friday,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Construct instructor name
+		if instructorFirst != "" || instructorLast != "" {
+			course.InstructorName = strings.TrimSpace(instructorFirst + " " + instructorLast)
+		} else {
+			course.InstructorName = "TBA"
+		}
+
+		courses = append(courses, course)
+	}
+
+	return courses, nil
+}
+
+// Crosslisting represents a cross-listing relationship between two courses
+type Crosslisting struct {
+	ID          int
+	CRN1        int
+	CRN2        int
+	ScheduleID1 int
+	ScheduleID2 int
+	CreatedAt   string
+	UpdatedAt   string
+}
+
+// AddOrUpdateCrosslisting adds a new cross-listing or updates an existing one
+func (scheduler *wmu_scheduler) AddOrUpdateCrosslisting(crn1, crn2, scheduleID1, scheduleID2 int) error {
+	// Check if cross-listing already exists (either direction)
+	var existingID int
+	err := scheduler.database.QueryRow(`
+		SELECT id FROM crosslistings 
+		WHERE (crn1 = ? AND crn2 = ?) OR (crn1 = ? AND crn2 = ?)
+	`, crn1, crn2, crn2, crn1).Scan(&existingID)
+
+	if err == nil {
+		// Update existing cross-listing
+		_, err = scheduler.database.Exec(`
+			UPDATE crosslistings 
+			SET crn1 = ?, crn2 = ?, schedule_id1 = ?, schedule_id2 = ?, updated_at = CURRENT_TIMESTAMP
+			WHERE id = ?
+		`, crn1, crn2, scheduleID1, scheduleID2, existingID)
+		return err
+	}
+
+	if err != sql.ErrNoRows {
+		return fmt.Errorf("error checking for existing crosslisting: %v", err)
+	}
+
+	// Insert new cross-listing
+	_, err = scheduler.database.Exec(`
+		INSERT INTO crosslistings (crn1, crn2, schedule_id1, schedule_id2) 
+		VALUES (?, ?, ?, ?)
+	`, crn1, crn2, scheduleID1, scheduleID2)
+
+	return err
+}
+
+// GetAllCrosslistingsForSchedule retrieves all cross-listings involving courses from a specific schedule
+func (scheduler *wmu_scheduler) GetAllCrosslistingsForSchedule(scheduleID int) ([]Crosslisting, error) {
+	rows, err := scheduler.database.Query(`
+		SELECT id, crn1, crn2, schedule_id1, schedule_id2, created_at, updated_at
+		FROM crosslistings 
+		WHERE schedule_id1 = ? OR schedule_id2 = ?
+		ORDER BY crn1, crn2
+	`, scheduleID, scheduleID)
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var crosslistings []Crosslisting
+	for rows.Next() {
+		var cl Crosslisting
+		err := rows.Scan(&cl.ID, &cl.CRN1, &cl.CRN2, &cl.ScheduleID1, &cl.ScheduleID2, &cl.CreatedAt, &cl.UpdatedAt)
+		if err != nil {
+			return nil, err
+		}
+		crosslistings = append(crosslistings, cl)
+	}
+
+	return crosslistings, nil
+}
+
+// GetAllCrosslistingsForCRN retrieves all cross-listings for a specific CRN
+func (scheduler *wmu_scheduler) GetAllCrosslistingsForCRN(crn int) ([]Crosslisting, error) {
+	rows, err := scheduler.database.Query(`
+		SELECT id, crn1, crn2, schedule_id1, schedule_id2, created_at, updated_at
+		FROM crosslistings 
+		WHERE crn1 = ? OR crn2 = ?
+		ORDER BY crn1, crn2
+	`, crn, crn)
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var crosslistings []Crosslisting
+	for rows.Next() {
+		var cl Crosslisting
+		err := rows.Scan(&cl.ID, &cl.CRN1, &cl.CRN2, &cl.ScheduleID1, &cl.ScheduleID2, &cl.CreatedAt, &cl.UpdatedAt)
+		if err != nil {
+			return nil, err
+		}
+		crosslistings = append(crosslistings, cl)
+	}
+
+	return crosslistings, nil
+}
+
+// DeleteCrosslisting removes a cross-listing by ID
+func (scheduler *wmu_scheduler) DeleteCrosslisting(crosslistingID int) error {
+	_, err := scheduler.database.Exec("DELETE FROM crosslistings WHERE id = ?", crosslistingID)
+	return err
+}
+
+// GetCrosslistedCRNsForCRN returns all CRNs that are cross-listed with the given CRN
+func (scheduler *wmu_scheduler) GetCrosslistedCRNsForCRN(crn int) ([]int, error) {
+	rows, err := scheduler.database.Query(`
+		SELECT CASE 
+			WHEN crn1 = ? THEN crn2 
+			ELSE crn1 
+		END as crosslisted_crn
+		FROM crosslistings 
+		WHERE crn1 = ? OR crn2 = ?
+	`, crn, crn, crn)
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var crns []int
+	for rows.Next() {
+		var crosslistedCRN int
+		err := rows.Scan(&crosslistedCRN)
+		if err != nil {
+			return nil, err
+		}
+		crns = append(crns, crosslistedCRN)
+	}
+
+	return crns, nil
+}
+
+func (scheduler *wmu_scheduler) AreCoursesCrosslisted(crn1, crn2 int) (bool, error) {
+	query := `
+		SELECT COUNT(*) FROM crosslistings
+		WHERE (crn1 = ? AND crn2 = ?) OR (crn1 = ? AND crn2 = ?)
+	`
+	var count int
+	err := scheduler.database.QueryRow(query, crn1, crn2, crn2, crn1).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }

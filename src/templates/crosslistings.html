@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cross Listings - WMU Course Scheduler</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <style>
+        .crosslistings-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .crosslistings-header {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #8B4513;
+        }
+        
+        .schedule-info {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 25px;
+            text-align: center;
+        }
+        
+        .table-container {
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            overflow: auto;
+            max-height: 480px; /* Approximately 10 rows (48px per row) */
+            margin-top: 20px;
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .crosslistings-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 0;
+            background: white;
+        }
+        
+        .crosslistings-table th,
+        .crosslistings-table td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #dee2e6;
+        }
+        
+        .crosslistings-table th {
+            background: #8B4513;
+            color: white;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 12px;
+            letter-spacing: 0.5px;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        
+        .crosslistings-table tr:hover {
+            background-color: #f8f9fa;
+        }
+        
+        .crosslistings-table tr:last-child td {
+            border-bottom: none;
+        }
+        
+        .crn-cell {
+            font-weight: 600;
+            color: #8B4513;
+        }
+        
+        .course-title {
+            font-weight: 500;
+        }
+        
+        .no-crosslistings {
+            text-align: center;
+            padding: 40px;
+            color: #6c757d;
+            font-style: italic;
+            background: #f8f9fa;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+        
+        .back-button {
+            display: inline-block;
+            background: #8B4513;
+            color: white;
+            padding: 10px 20px;
+            text-decoration: none;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            transition: background-color 0.3s;
+        }
+        
+        .back-button:hover {
+            background: #A0522D;
+            color: white;
+            text-decoration: none;
+        }
+        
+        .schedule-badge {
+            display: inline-block;
+            background: #e9ecef;
+            color: #495057;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        
+        .crosslisting-pair {
+            border-left: 4px solid #8B4513;
+            background: #fff8f0;
+        }
+        
+        .arrow {
+            color: #8B4513;
+            font-weight: bold;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    {{template "navbar" .}}
+    <div class="crosslistings-container">
+        <div class="crosslistings-header">
+            <h1>Course Cross Listings</h1>
+            {{if .Schedule}}
+            <div class="schedule-info">
+                <h2>{{.Schedule.Prefix}} {{.Schedule.Term}} {{.Schedule.Year}}</h2>
+                <p>{{.Schedule.Department}}</p>
+            </div>
+            {{end}}
+        </div>
+        
+        {{if .Crosslistings}}
+        <div class="table-container">
+            <table class="crosslistings-table">
+                <thead>
+                    <tr>
+                        <th>Course 1</th>
+                        <th>CRN 1</th>
+                        <th>Title 1</th>
+                        <th>Schedule 1</th>
+                        <th></th>
+                        <th>Course 2</th>
+                        <th>CRN 2</th>
+                        <th>Title 2</th>
+                        <th>Schedule 2</th>
+                        <th>Created</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Crosslistings}}
+                    <tr class="crosslisting-pair">
+                        <td class="course-title">{{.Course1.Prefix}} {{.Course1.CourseNumber}}</td>
+                        <td class="crn-cell">{{.Course1.CRN}}</td>
+                        <td>{{.Course1.Title}}</td>
+                        <td><span class="schedule-badge">{{.Schedule1.Prefix}} {{.Schedule1.Term}} {{.Schedule1.Year}}</span></td>
+                        <td class="arrow">↔</td>
+                        <td class="course-title">{{.Course2.Prefix}} {{.Course2.CourseNumber}}</td>
+                        <td class="crn-cell">{{.Course2.CRN}}</td>
+                        <td>{{.Course2.Title}}</td>
+                        <td><span class="schedule-badge">{{.Schedule2.Prefix}} {{.Schedule2.Term}} {{.Schedule2.Year}}</span></td>
+                        <td>{{.CreatedAt}}</td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+        {{else}}
+        <div class="no-crosslistings">
+            <h3>No Cross Listings Found</h3>
+            <p>There are currently no course cross listings for this schedule.</p>
+        </div>
+        {{end}}
+        
+        <div style="text-align: right; margin-top: 30px;">
+            <a href="/scheduler/courses" class="back-button" style="margin-right: 10px;">← Back to Courses</a>
+            <a href="/scheduler/add_crosslisting" class="back-button" style="background: #8B4513;">+ Add Cross Listing</a>
+        </div>
+    </div>
+</body>
+</html>
