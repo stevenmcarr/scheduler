@@ -399,10 +399,6 @@ func (scheduler *wmu_scheduler) SaveCoursesGin(c *gin.Context) {
 		scheduler.ExportCoursesToExcel(c)
 		return
 	}
-	if action == "detect" {
-		scheduler.DetectScheduleConflictsGin(c)
-		return
-	}
 
 	// Parse the courses JSON data from the form
 	coursesJSON := c.PostForm("courses")
@@ -3696,12 +3692,18 @@ func (scheduler *wmu_scheduler) RenderConflictSelectPageGin(c *gin.Context) {
 	}
 	session.Save()
 
+	// Check for pre-selected schedules from query parameters
+	preSelectedSchedule1 := c.Query("schedule1")
+	preSelectedSchedule2 := c.Query("schedule2")
+
 	c.HTML(http.StatusOK, "conflict_select.html", gin.H{
-		"User":      user,
-		"Schedules": schedules,
-		"Error":     errorMsg,
-		"Success":   successMsg,
-		"CSRFToken": csrf.GetToken(c),
+		"User":                 user,
+		"Schedules":            schedules,
+		"Error":                errorMsg,
+		"Success":              successMsg,
+		"CSRFToken":            csrf.GetToken(c),
+		"PreSelectedSchedule1": preSelectedSchedule1,
+		"PreSelectedSchedule2": preSelectedSchedule2,
 	})
 }
 func conflictExists(conflicts []ConflictPair, c1, c2 CourseDetail, conflictType string) bool {

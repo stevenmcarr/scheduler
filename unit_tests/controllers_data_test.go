@@ -564,4 +564,29 @@ func TestDataValidation(t *testing.T) {
 			assert.True(t, isInvalid, "Invalid instructor should be detected")
 		}
 	})
+
+	t.Run("Mode Validation", func(t *testing.T) {
+		validModes := []string{"IP", "FSO", "PSO", "H", "CLAS"}
+		invalidModes := []string{"", "INVALID", "XYZ", "123"}
+		allowedModes := []string{"IP", "FSO", "PSO", "H", "CLAS"}
+
+		for _, mode := range validModes {
+			assert.NotEmpty(t, mode, "Valid mode should not be empty")
+			assert.Contains(t, allowedModes, mode, "Mode should be one of the valid options")
+		}
+
+		for _, mode := range invalidModes {
+			isInvalid := mode == ""
+			if mode != "" {
+				isInvalid = true
+				for _, allowed := range allowedModes {
+					if mode == allowed {
+						isInvalid = false
+						break
+					}
+				}
+			}
+			assert.True(t, isInvalid, "Invalid mode should be detected: "+mode)
+		}
+	})
 }

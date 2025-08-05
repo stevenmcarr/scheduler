@@ -172,7 +172,55 @@
             <button type="button" onclick="detectConflicts()">Detect Conflicts</button>
             <script>
                 function detectConflicts() {
-                    window.location.href = '/scheduler/conflicts';
+                    var checked = document.querySelectorAll('input[name="select_schedule"]:checked');
+                    
+                    if (checked.length === 0) {
+                        // No schedules selected - go to conflict select page
+                        window.location.href = '/scheduler/conflicts';
+                    } else if (checked.length === 1) {
+                        // One schedule selected - go to conflict select page with pre-selection
+                        window.location.href = '/scheduler/conflicts?schedule1=' + checked[0].value;
+                    } else if (checked.length === 2) {
+                        // Two schedules selected - directly submit to conflict detection
+                        const form = document.createElement('form');
+                        form.method = 'POST';
+                        form.action = '/scheduler/conflicts';
+                        form.style.display = 'none';
+                        
+                        // Add CSRF token
+                        const csrfInput = document.createElement('input');
+                        csrfInput.type = 'hidden';
+                        csrfInput.name = 'csrf_token';
+                        csrfInput.value = '{{.CSRFToken}}';
+                        form.appendChild(csrfInput);
+                        
+                        // Add schedule IDs
+                        const schedule1Input = document.createElement('input');
+                        schedule1Input.type = 'hidden';
+                        schedule1Input.name = 'schedule1_id';
+                        schedule1Input.value = checked[0].value;
+                        form.appendChild(schedule1Input);
+                        
+                        const schedule2Input = document.createElement('input');
+                        schedule2Input.type = 'hidden';
+                        schedule2Input.name = 'schedule2_id';
+                        schedule2Input.value = checked[1].value;
+                        form.appendChild(schedule2Input);
+                        
+                        document.body.appendChild(form);
+                        form.submit();
+                    } else {
+                        // Three or more schedules selected - show error
+                        fetch('/scheduler/set_error_message', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({message: 'Please select 0, 1, or 2 schedules for conflict detection. You have selected ' + checked.length + ' schedules.'}),
+                        }).then(() => {
+                            window.location.reload();
+                        });
+                    }
                 }
             </script>
             <button type="button" onclick="location.href='/scheduler/import'">Import Schedule</button>
