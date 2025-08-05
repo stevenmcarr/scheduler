@@ -194,6 +194,27 @@ func (scheduler *wmu_scheduler) router() *gin.Engine {
 		scheduler.RenderCoursesTableGin(c)
 	})
 
+	// Cross listings view
+	r.GET("/scheduler/crosslistings", func(c *gin.Context) {
+		scheduler.RenderCrosslistingsPageGin(c)
+	})
+
+	// Add crosslisting routes
+	r.GET("/scheduler/add_crosslisting", func(c *gin.Context) {
+		scheduler.RenderAddCrosslistingPageGin(c)
+	})
+	r.POST("/scheduler/add_crosslisting", func(c *gin.Context) {
+		scheduler.AddCrosslistingGin(c)
+	})
+	r.POST("/scheduler/delete_crosslisting", func(c *gin.Context) {
+		scheduler.DeleteCrosslistingGin(c)
+	})
+
+	// API route for getting courses by schedule (for AJAX)
+	r.GET("/scheduler/api/courses/:scheduleId", func(c *gin.Context) {
+		scheduler.GetCoursesForScheduleAPIGin(c)
+	})
+
 	r.GET("/scheduler/rooms", func(c *gin.Context) {
 		scheduler.RenderRoomsPageGin(c)
 	})

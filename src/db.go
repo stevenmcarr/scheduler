@@ -1352,3 +1352,148 @@ func (scheduler *wmu_scheduler) GetCoursesWithScheduleData() ([]CourseScheduleIt
 
 	return courses, nil
 }
+
+// Crosslisting represents a cross-listing relationship between two courses
+type Crosslisting struct {
+	ID          int
+	CRN1        int
+	CRN2        int
+	ScheduleID1 int
+	ScheduleID2 int
+	CreatedAt   string
+	UpdatedAt   string
+}
+
+// AddOrUpdateCrosslisting adds a new cross-listing or updates an existing one
+func (scheduler *wmu_scheduler) AddOrUpdateCrosslisting(crn1, crn2, scheduleID1, scheduleID2 int) error {
+	// Check if cross-listing already exists (either direction)
+	var existingID int
+	err := scheduler.database.QueryRow(`
+		SELECT id FROM crosslistings 
+		WHERE (crn1 = ? AND crn2 = ?) OR (crn1 = ? AND crn2 = ?)
+	`, crn1, crn2, crn2, crn1).Scan(&existingID)
+
+	if err == nil {
+		// Update existing cross-listing
+		_, err = scheduler.database.Exec(`
+			UPDATE crosslistings 
+			SET crn1 = ?, crn2 = ?, schedule_id1 = ?, schedule_id2 = ?, updated_at = CURRENT_TIMESTAMP
+			WHERE id = ?
+		`, crn1, crn2, scheduleID1, scheduleID2, existingID)
+		return err
+	}
+
+	if err != sql.ErrNoRows {
+		return fmt.Errorf("error checking for existing crosslisting: %v", err)
+	}
+
+	// Insert new cross-listing
+	_, err = scheduler.database.Exec(`
+		INSERT INTO crosslistings (crn1, crn2, schedule_id1, schedule_id2) 
+		VALUES (?, ?, ?, ?)
+	`, crn1, crn2, scheduleID1, scheduleID2)
+
+	return err
+}
+
+// GetAllCrosslistingsForSchedule retrieves all cross-listings involving courses from a specific schedule
+func (scheduler *wmu_scheduler) GetAllCrosslistingsForSchedule(scheduleID int) ([]Crosslisting, error) {
+	rows, err := scheduler.database.Query(`
+		SELECT id, crn1, crn2, schedule_id1, schedule_id2, created_at, updated_at
+		FROM crosslistings 
+		WHERE schedule_id1 = ? OR schedule_id2 = ?
+		ORDER BY crn1, crn2
+	`, scheduleID, scheduleID)
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var crosslistings []Crosslisting
+	for rows.Next() {
+		var cl Crosslisting
+		err := rows.Scan(&cl.ID, &cl.CRN1, &cl.CRN2, &cl.ScheduleID1, &cl.ScheduleID2, &cl.CreatedAt, &cl.UpdatedAt)
+		if err != nil {
+			return nil, err
+		}
+		crosslistings = append(crosslistings, cl)
+	}
+
+	return crosslistings, nil
+}
+
+// GetAllCrosslistingsForCRN retrieves all cross-listings for a specific CRN
+func (scheduler *wmu_scheduler) GetAllCrosslistingsForCRN(crn int) ([]Crosslisting, error) {
+	rows, err := scheduler.database.Query(`
+		SELECT id, crn1, crn2, schedule_id1, schedule_id2, created_at, updated_at
+		FROM crosslistings 
+		WHERE crn1 = ? OR crn2 = ?
+		ORDER BY crn1, crn2
+	`, crn, crn)
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var crosslistings []Crosslisting
+	for rows.Next() {
+		var cl Crosslisting
+		err := rows.Scan(&cl.ID, &cl.CRN1, &cl.CRN2, &cl.ScheduleID1, &cl.ScheduleID2, &cl.CreatedAt, &cl.UpdatedAt)
+		if err != nil {
+			return nil, err
+		}
+		crosslistings = append(crosslistings, cl)
+	}
+
+	return crosslistings, nil
+}
+
+// DeleteCrosslisting removes a cross-listing by ID
+func (scheduler *wmu_scheduler) DeleteCrosslisting(crosslistingID int) error {
+	_, err := scheduler.database.Exec("DELETE FROM crosslistings WHERE id = ?", crosslistingID)
+	return err
+}
+
+// GetCrosslistedCRNsForCRN returns all CRNs that are cross-listed with the given CRN
+func (scheduler *wmu_scheduler) GetCrosslistedCRNsForCRN(crn int) ([]int, error) {
+	rows, err := scheduler.database.Query(`
+		SELECT CASE 
+			WHEN crn1 = ? THEN crn2 
+			ELSE crn1 
+		END as crosslisted_crn
+		FROM crosslistings 
+		WHERE crn1 = ? OR crn2 = ?
+	`, crn, crn, crn)
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var crns []int
+	for rows.Next() {
+		var crosslistedCRN int
+		err := rows.Scan(&crosslistedCRN)
+		if err != nil {
+			return nil, err
+		}
+		crns = append(crns, crosslistedCRN)
+	}
+
+	return crns, nil
+}
+
+func (scheduler *wmu_scheduler) AreCoursesCrosslisted(crn1, crn2 int) (bool, error) {
+	query := `
+		SELECT COUNT(*) FROM crosslistings
+		WHERE (crn1 = ? AND crn2 = ?) OR (crn1 = ? AND crn2 = ?)
+	`
+	var count int
+	err := scheduler.database.QueryRow(query, crn1, crn2, crn2, crn1).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}

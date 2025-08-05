@@ -167,6 +167,28 @@ CREATE TABLE courses (
     INDEX idx_mode (mode)
 ) ENGINE=InnoDB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
+-- Create crosslistings table to track course cross-listing relationships
+CREATE TABLE crosslistings (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    crn1 INT NOT NULL,
+    crn2 INT NOT NULL,
+    schedule_id1 INT NOT NULL,
+    schedule_id2 INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (crn1) REFERENCES courses(crn) ON DELETE CASCADE,
+    FOREIGN KEY (crn2) REFERENCES courses(crn) ON DELETE CASCADE,
+    FOREIGN KEY (schedule_id1) REFERENCES schedules(id) ON DELETE CASCADE,
+    FOREIGN KEY (schedule_id2) REFERENCES schedules(id) ON DELETE CASCADE,
+    INDEX idx_crn1 (crn1),
+    INDEX idx_crn2 (crn2),
+    INDEX idx_schedule_id1 (schedule_id1),
+    INDEX idx_schedule_id2 (schedule_id2),
+    INDEX idx_crosslisting_pair (crn1, crn2),
+    INDEX idx_schedule_pair (schedule_id1, schedule_id2),
+    UNIQUE INDEX unique_crosslisting (crn1, crn2)
+) ENGINE=InnoDB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
 -- Insert default data
 
 -- Insert default departments

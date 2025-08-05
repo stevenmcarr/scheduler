@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Add Cross Listing - WMU Course Scheduler</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <style>
+        .add-crosslisting-container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .add-crosslisting-header {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #8B4513;
+        }
+        
+        .form-container {
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        .form-group {
+            margin-bottom: 25px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .form-group select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #dee2e6;
+            border-radius: 5px;
+            font-size: 14px;
+            background-color: white;
+            transition: border-color 0.3s;
+        }
+        
+        .form-group select:focus {
+            outline: none;
+            border-color: #8B4513;
+            box-shadow: 0 0 0 3px rgba(139, 69, 19, 0.1);
+        }
+        
+        .courses-row {
+            display: flex;
+            gap: 30px;
+            margin-bottom: 20px;
+        }
+        
+        .course-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 5px;
+            border: 1px solid #dee2e6;
+            flex: 1;
+        }
+        
+        .course-section h3 {
+            margin: 0 0 15px 0;
+            color: #8B4513;
+            font-size: 18px;
+        }
+        
+        @media (max-width: 768px) {
+            .courses-row {
+                flex-direction: column;
+                gap: 20px;
+            }
+        }
+        
+        .button-group {
+            text-align: center;
+            margin-top: 30px;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 12px 25px;
+            margin: 0 10px;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        
+        .btn-primary {
+            background: #8B4513;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #A0522D;
+            color: white;
+            text-decoration: none;
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            background: #5a6268;
+            color: white;
+            text-decoration: none;
+        }
+        
+        .error-message {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 12px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .success-message {
+            background: #d4edda;
+            color: #155724;
+            padding: 12px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .loading {
+            color: #6c757d;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    {{template "navbar" .}}
+    <div class="add-crosslisting-container">
+        <div class="add-crosslisting-header">
+            <h1>Add Cross Listing</h1>
+            <p>Create a cross-listing relationship between two courses</p>
+        </div>
+        
+        {{if .Error}}
+        <div class="error-message">
+            {{.Error}}
+        </div>
+        {{end}}
+        
+        {{if .Success}}
+        <div class="success-message">
+            {{.Success}}
+        </div>
+        {{end}}
+        
+        <form action="/scheduler/add_crosslisting" method="POST" class="form-container">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            
+            <div class="courses-row">
+                <div class="course-section">
+                    <h3>First Course</h3>
+                    <div class="form-group">
+                        <label for="schedule1">Schedule:</label>
+                        <select id="schedule1" name="schedule1" required onchange="loadCourses('schedule1', 'course1')">
+                            <option value="">Select a schedule...</option>
+                            {{range .Schedules}}
+                            <option value="{{.ID}}" {{if eq .ID $.Values.schedule1}}selected{{end}}>
+                                {{.Prefix}} {{.Term}} {{.Year}}
+                            </option>
+                            {{end}}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="course1">Course:</label>
+                        <select id="course1" name="course1" required>
+                            <option value="">Select a schedule first...</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="course-section">
+                    <h3>Second Course</h3>
+                    <div class="form-group">
+                        <label for="schedule2">Schedule:</label>
+                        <select id="schedule2" name="schedule2" required onchange="loadCourses('schedule2', 'course2')">
+                            <option value="">Select a schedule...</option>
+                            {{range .Schedules}}
+                            <option value="{{.ID}}" {{if eq .ID $.Values.schedule2}}selected{{end}}>
+                                {{.Prefix}} {{.Term}} {{.Year}}
+                            </option>
+                            {{end}}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="course2">Course:</label>
+                        <select id="course2" name="course2" required>
+                            <option value="">Select a schedule first...</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="button-group">
+                <button type="submit" class="btn btn-primary">Add Cross Listing</button>
+                <a href="/scheduler/crosslistings" class="btn btn-secondary">Return to Cross Listings</a>
+            </div>
+        </form>
+    </div>
+    
+    <script>
+        // Load courses for the selected schedule
+        function loadCourses(scheduleSelectId, courseSelectId) {
+            const scheduleSelect = document.getElementById(scheduleSelectId);
+            const courseSelect = document.getElementById(courseSelectId);
+            const scheduleId = scheduleSelect.value;
+            
+            // Clear the course dropdown
+            courseSelect.innerHTML = '<option value="">Loading courses...</option>';
+            courseSelect.disabled = true;
+            
+            if (!scheduleId) {
+                courseSelect.innerHTML = '<option value="">Select a schedule first...</option>';
+                return;
+            }
+            
+            // Fetch courses for the selected schedule
+            fetch(`/scheduler/api/courses/${scheduleId}`, {
+                method: 'GET',
+                credentials: 'same-origin', // Include cookies/session data
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+                .then(response => response.json())
+                .then(data => {
+                    courseSelect.innerHTML = '<option value="">Select a course...</option>';
+                    
+                    if (data && data.length > 0) {
+                        data.forEach(courseOption => {
+                            const option = document.createElement('option');
+                            option.value = courseOption.value;
+                            option.textContent = courseOption.text;
+                            courseSelect.appendChild(option);
+                        });
+                    } else {
+                        courseSelect.innerHTML = '<option value="">No courses found</option>';
+                    }
+                    
+                    courseSelect.disabled = false;
+                })
+                .catch(error => {
+                    console.error('Error loading courses:', error);
+                    courseSelect.innerHTML = '<option value="">Error loading courses</option>';
+                    courseSelect.disabled = false;
+                });
+        }
+        
+        // Load courses for selected schedules on page load if values are pre-selected
+        document.addEventListener('DOMContentLoaded', function() {
+            const schedule1 = document.getElementById('schedule1').value;
+            const schedule2 = document.getElementById('schedule2').value;
+            
+            if (schedule1) {
+                loadCourses('schedule1', 'course1');
+            }
+            if (schedule2) {
+                loadCourses('schedule2', 'course2');
+            }
+        });
+    </script>
+</body>
+</html>

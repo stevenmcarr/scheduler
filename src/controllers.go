@@ -3737,6 +3737,12 @@ func (scheduler *wmu_scheduler) DetectConflictsBetweenSchedules(schedule1ID, sch
 				continue
 			}
 
+			crosslist, err := scheduler.AreCoursesCrosslisted(course1.CRN, course2.CRN)
+			if err != nil || crosslist {
+				// Skip crosslisted courses
+				continue
+			}
+
 			// Check if time slots overlap
 			if scheduler.timeSlotsOverlap(course1.TimeSlot, course2.TimeSlot) {
 				// Check for instructor conflicts
@@ -3750,6 +3756,7 @@ func (scheduler *wmu_scheduler) DetectConflictsBetweenSchedules(schedule1ID, sch
 						}
 						// Avoid duplicate conflicts
 						if !conflictExists(instructorConflicts, course1, course2, "instructor") {
+
 							// Add to instructor conflicts
 							instructorConflicts = append(instructorConflicts, conflictPair)
 						}
@@ -3772,9 +3779,6 @@ func (scheduler *wmu_scheduler) DetectConflictsBetweenSchedules(schedule1ID, sch
 			}
 		}
 	}
-
-	fmt.Printf("Detected %d instructor conflicts and %d room conflicts between schedules %d and %d\n",
-		len(instructorConflicts), len(roomConflicts), schedule1ID, schedule2ID)
 
 	return &ConflictReport{
 		InstructorConflicts: instructorConflicts,
@@ -3868,4 +3872,403 @@ func (scheduler *wmu_scheduler) isFSOPSOException(course1, course2 CourseDetail)
 // isSameCourse checks if two courses are the same course (same prefix and course number)
 func (scheduler *wmu_scheduler) isSameCourse(course1, course2 CourseDetail) bool {
 	return course1.Prefix == course2.Prefix && course1.CourseNumber == course2.CourseNumber
+}
+
+// CrosslistingDisplayItem represents a cross-listing with enriched course and schedule data for display
+type CrosslistingDisplayItem struct {
+	ID        int
+	Course1   CourseDetail
+	Course2   CourseDetail
+	Schedule1 Schedule
+	Schedule2 Schedule
+	CreatedAt string
+	UpdatedAt string
+}
+
+// RenderCrosslistingsPageGin renders the crosslistings page for the current schedule
+func (scheduler *wmu_scheduler) RenderCrosslistingsPageGin(c *gin.Context) {
+	// Check authentication
+	user, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Get any error or success messages from session
+	session := sessions.Default(c)
+	successMsg := session.Get("success")
+	errorMsg := session.Get("error")
+	session.Delete("success")
+	session.Delete("error")
+	session.Save()
+
+	// Get schedule_id from session
+	scheduleIDStr, err := scheduler.getCurrentSchedule(c)
+	if err != nil {
+		c.HTML(http.StatusBadRequest, "error.html", gin.H{
+			"Error": "No schedule selected. Please select a schedule first.",
+		})
+		return
+	}
+
+	// Convert schedule ID to integer
+	scheduleID, err := strconv.Atoi(scheduleIDStr)
+	if err != nil {
+		c.HTML(http.StatusBadRequest, "error.html", gin.H{
+			"Error": "Invalid schedule ID",
+		})
+		return
+	}
+
+	// Get current schedule information
+	currentSchedule, err := scheduler.GetScheduleByID(scheduleID)
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
+			"Error": "Failed to get schedule information: " + err.Error(),
+		})
+		return
+	}
+
+	if currentSchedule == nil {
+		c.HTML(http.StatusNotFound, "error.html", gin.H{
+			"Error": "Schedule not found",
+		})
+		return
+	}
+
+	// Get all crosslistings for this schedule
+	crosslistings, err := scheduler.GetAllCrosslistingsForSchedule(scheduleID)
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
+			"Error": "Failed to get crosslistings: " + err.Error(),
+		})
+		return
+	}
+
+	// Enrich crosslistings with course and schedule details
+	var enrichedCrosslistings []CrosslistingDisplayItem
+	for _, cl := range crosslistings {
+		var enriched CrosslistingDisplayItem
+		enriched.ID = cl.ID
+		enriched.CreatedAt = cl.CreatedAt
+		enriched.UpdatedAt = cl.UpdatedAt
+
+		// Get course details for CRN1
+		course1, err := scheduler.getCourseDetailsByCRN(cl.CRN1)
+		if err != nil {
+			AppLogger.LogError(fmt.Sprintf("Failed to get course details for CRN %d", cl.CRN1), err)
+			continue
+		}
+		enriched.Course1 = course1
+
+		// Get course details for CRN2
+		course2, err := scheduler.getCourseDetailsByCRN(cl.CRN2)
+		if err != nil {
+			AppLogger.LogError(fmt.Sprintf("Failed to get course details for CRN %d", cl.CRN2), err)
+			continue
+		}
+		enriched.Course2 = course2
+
+		// Get schedule details for Schedule1
+		schedule1, err := scheduler.GetScheduleByID(cl.ScheduleID1)
+		if err != nil || schedule1 == nil {
+			AppLogger.LogError(fmt.Sprintf("Failed to get schedule details for ID %d", cl.ScheduleID1), err)
+			continue
+		}
+		enriched.Schedule1 = *schedule1
+
+		// Get schedule details for Schedule2
+		schedule2, err := scheduler.GetScheduleByID(cl.ScheduleID2)
+		if err != nil || schedule2 == nil {
+			AppLogger.LogError(fmt.Sprintf("Failed to get schedule details for ID %d", cl.ScheduleID2), err)
+			continue
+		}
+		enriched.Schedule2 = *schedule2
+
+		enrichedCrosslistings = append(enrichedCrosslistings, enriched)
+	}
+
+	// Render the template
+	c.HTML(http.StatusOK, "crosslistings.html", gin.H{
+		"User":          user,
+		"Schedule":      currentSchedule,
+		"Crosslistings": enrichedCrosslistings,
+		"Success":       successMsg,
+		"Error":         errorMsg,
+		"CSRFToken":     csrf.GetToken(c),
+	})
+}
+
+// getCourseDetailsByCRN retrieves detailed course information by CRN
+func (scheduler *wmu_scheduler) getCourseDetailsByCRN(crn int) (CourseDetail, error) {
+	var course CourseDetail
+
+	query := `
+		SELECT c.id, c.crn, c.section, c.schedule_id, p.prefix, c.course_number, c.title,
+			   COALESCE(c.instructor_id, -1) as instructor_id,
+			   COALESCE(c.timeslot_id, -1) as timeslot_id,
+			   COALESCE(c.room_id, -1) as room_id,
+			   c.mode
+		FROM courses c
+		JOIN schedules s ON c.schedule_id = s.id
+		JOIN prefixes p ON s.prefix_id = p.id
+		WHERE c.crn = ? AND c.status != 'Deleted'
+	`
+
+	err := scheduler.database.QueryRow(query, crn).Scan(
+		&course.ID, &course.CRN, &course.Section, &course.ScheduleID,
+		&course.Prefix, &course.CourseNumber, &course.Title,
+		&course.InstructorID, &course.TimeSlotID, &course.RoomID,
+		&course.Mode,
+	)
+
+	if err != nil {
+		return course, err
+	}
+
+	// Get time slot details if available
+	if course.TimeSlotID != -1 {
+		timeSlot, err := scheduler.GetTimeSlotById(course.TimeSlotID)
+		if err == nil && timeSlot != nil {
+			course.TimeSlot = timeSlot
+		}
+	}
+
+	return course, nil
+}
+
+// RenderAddCrosslistingPageGin renders the add crosslisting form page
+func (scheduler *wmu_scheduler) RenderAddCrosslistingPageGin(c *gin.Context) {
+	// Check authentication
+	user, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Get any error or success messages from session
+	session := sessions.Default(c)
+	successMsg := session.Get("success")
+	errorMsg := session.Get("error")
+	session.Delete("success")
+	session.Delete("error")
+	session.Save()
+
+	// Get all schedules for dropdowns
+	schedules, err := scheduler.GetAllSchedules()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
+			"Error": "Failed to get schedules: " + err.Error(),
+			"User":  user,
+		})
+		return
+	}
+
+	// Render the form template
+	c.HTML(http.StatusOK, "add_crosslisting.html", gin.H{
+		"User":      user,
+		"Schedules": schedules,
+		"Success":   successMsg,
+		"Error":     errorMsg,
+		"CSRFToken": csrf.GetToken(c),
+	})
+}
+
+// AddCrosslistingGin handles the POST request to add a new crosslisting
+func (scheduler *wmu_scheduler) AddCrosslistingGin(c *gin.Context) {
+	// Check authentication
+	_, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
+
+	// Get form data
+	schedule1IDStr := c.PostForm("schedule1")
+	course1IDStr := c.PostForm("course1")
+	schedule2IDStr := c.PostForm("schedule2")
+	course2IDStr := c.PostForm("course2")
+
+	// Validate form data
+	if schedule1IDStr == "" || course1IDStr == "" || schedule2IDStr == "" || course2IDStr == "" {
+		session := sessions.Default(c)
+		session.Set("error", "All fields are required")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/add_crosslisting")
+		return
+	}
+
+	// Convert to integers
+	schedule1ID, err := strconv.Atoi(schedule1IDStr)
+	if err != nil {
+		session := sessions.Default(c)
+		session.Set("error", "Invalid schedule 1 selection")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/add_crosslisting")
+		return
+	}
+
+	schedule2ID, err := strconv.Atoi(schedule2IDStr)
+	if err != nil {
+		session := sessions.Default(c)
+		session.Set("error", "Invalid schedule 2 selection")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/add_crosslisting")
+		return
+	}
+
+	// Parse CRNs from course selections (format: "crn:title")
+	course1Parts := strings.SplitN(course1IDStr, ":", 2)
+	course2Parts := strings.SplitN(course2IDStr, ":", 2)
+
+	if len(course1Parts) < 1 || len(course2Parts) < 1 {
+		session := sessions.Default(c)
+		session.Set("error", "Invalid course selections")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/add_crosslisting")
+		return
+	}
+
+	crn1, err := strconv.Atoi(course1Parts[0])
+	if err != nil {
+		session := sessions.Default(c)
+		session.Set("error", "Invalid CRN for course 1")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/add_crosslisting")
+		return
+	}
+
+	crn2, err := strconv.Atoi(course2Parts[0])
+	if err != nil {
+		session := sessions.Default(c)
+		session.Set("error", "Invalid CRN for course 2")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/add_crosslisting")
+		return
+	}
+
+	// Validate that the courses are different
+	if crn1 == crn2 {
+		session := sessions.Default(c)
+		session.Set("error", "Cannot crosslist a course with itself")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/add_crosslisting")
+		return
+	}
+
+	// Add the crosslisting to the database
+	err = scheduler.AddOrUpdateCrosslisting(crn1, crn2, schedule1ID, schedule2ID)
+	if err != nil {
+		AppLogger.LogError("Failed to add crosslisting", err)
+		session := sessions.Default(c)
+		session.Set("error", "Failed to add crosslisting: "+err.Error())
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/add_crosslisting")
+		return
+	}
+
+	// Success
+	session := sessions.Default(c)
+	session.Set("success", fmt.Sprintf("Successfully added crosslisting between CRN %d and CRN %d", crn1, crn2))
+	session.Save()
+	c.Redirect(http.StatusFound, "/scheduler/crosslistings")
+}
+
+// GetCoursesForScheduleAPIGin provides an API endpoint to get courses for a schedule (for AJAX calls)
+func (scheduler *wmu_scheduler) GetCoursesForScheduleAPIGin(c *gin.Context) {
+	// Check authentication
+	_, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
+
+	// Get schedule ID from URL parameter
+	scheduleIDStr := c.Param("scheduleId")
+	scheduleID, err := strconv.Atoi(scheduleIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid schedule ID"})
+		return
+	}
+
+	// Get active courses for the schedule
+	courses, err := scheduler.GetActiveCoursesForSchedule(scheduleID)
+	if err != nil {
+		AppLogger.LogError(fmt.Sprintf("Failed to get courses for schedule %d", scheduleID), err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get courses"})
+		return
+	}
+
+	// Format courses for the dropdown (CRN:Title format expected by frontend)
+	type CourseOption struct {
+		Value string `json:"value"`
+		Text  string `json:"text"`
+	}
+
+	var courseOptions []CourseOption
+	for _, course := range courses {
+		value := fmt.Sprintf("%d", course.CRN)
+		text := fmt.Sprintf("CRN %d: %s %s - %s", course.CRN, course.Prefix, course.CourseNumber, course.Title)
+		courseOptions = append(courseOptions, CourseOption{
+			Value: value,
+			Text:  text,
+		})
+	}
+
+	c.JSON(http.StatusOK, courseOptions)
+}
+
+type CourseForCrosslist struct {
+	CRN          int    `json:"crn"`
+	Prefix       string `json:"prefix"`
+	CourseNumber string `json:"course_number"`
+	Days         string `json:"days"`
+	StartTime    string `json:"start_time"`
+	EndTime      string `json:"end_time"`
+}
+
+// DeleteCrosslistingGin handles deletion of a crosslisting
+func (scheduler *wmu_scheduler) DeleteCrosslistingGin(c *gin.Context) {
+	// Check authentication
+	_, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Get crosslisting ID from form
+	crosslistingIDStr := c.PostForm("crosslisting_id")
+	if crosslistingIDStr == "" {
+		session := sessions.Default(c)
+		session.Set("error", "No crosslisting selected for deletion")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/crosslistings")
+		return
+	}
+
+	crosslistingID, err := strconv.Atoi(crosslistingIDStr)
+	if err != nil {
+		session := sessions.Default(c)
+		session.Set("error", "Invalid crosslisting ID")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/crosslistings")
+		return
+	}
+
+	// Delete the crosslisting
+	err = scheduler.DeleteCrosslisting(crosslistingID)
+	if err != nil {
+		AppLogger.LogError(fmt.Sprintf("Failed to delete crosslisting %d", crosslistingID), err)
+		session := sessions.Default(c)
+		session.Set("error", "Failed to delete crosslisting: "+err.Error())
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/crosslistings")
+		return
+	}
+
+	// Success
+	session := sessions.Default(c)
+	session.Set("success", "Crosslisting deleted successfully")
+	session.Save()
+	c.Redirect(http.StatusFound, "/scheduler/crosslistings")
 }
