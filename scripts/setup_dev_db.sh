@@ -28,7 +28,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 # Check if .env file exists
-ENV_FILE="$PROJECT_DIR/.env"
+ENV_FILE="$PROJECT_DIR/.env.dev"
 if [[ ! -f "$ENV_FILE" ]]; then
     print_error ".env file not found at $ENV_FILE"
     print_info "Please create a .env file with your database credentials first."
@@ -59,7 +59,7 @@ print_info "  User: $DB_USER"
 print_info "  Source DB: $DB_NAME"
 
 # Build arguments for the main script
-ARGS="-u $DB_USER -p $DB_PASSWORD -H $DB_HOST -P $DB_PORT -s $DB_NAME"
+ARGS="-u $DB_USER -p '$DB_PASSWORD' -H $DB_HOST -P $DB_PORT -s $DB_NAME"
 
 # Check command line arguments to pass through
 while [[ $# -gt 0 ]]; do

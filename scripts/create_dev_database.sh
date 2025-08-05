@@ -8,6 +8,10 @@
 
 set -e  # Exit on any error
 
+# Get the project root directory (parent of scripts directory)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
 # Color codes for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -46,7 +50,7 @@ show_usage() {
     echo "Options:"
     echo "  -h, --help              Show this help message"
     echo "  -u, --user USER         MySQL username (required)"
-    echo "  -p, --password PASS     MySQL password (will prompt if not provided)"
+    echo "  -p, --password PASS     MySQL password (optional - will prompt securely if not provided)"
     echo "  -H, --host HOST         MySQL host (default: localhost)"
     echo "  -P, --port PORT         MySQL port (default: 3306)"
     echo "  -s, --source-db DB      Source database name (default: wmu_schedules)"
@@ -56,8 +60,9 @@ show_usage() {
     echo "  --backup-file FILE      Custom backup file path (default: /tmp/wmu_schedules_backup_TIMESTAMP.sql)"
     echo ""
     echo "Examples:"
-    echo "  $0 -u root -p mypassword"
-    echo "  $0 -u dbuser -H 192.168.1.100 -c -f"
+    echo "  $0 -u root                           # Will prompt for password securely"
+    echo "  $0 -u root -p mypassword             # Password on command line (less secure)"
+    echo "  $0 -u dbuser -H 192.168.1.100 -c -f # Will prompt for password"
     echo "  $0 -u dbuser --clean-sensitive --force"
 }
 
@@ -123,26 +128,49 @@ if [[ -z "$DB_USER" ]]; then
     exit 1
 fi
 
-# Prompt for password if not provided
-if [[ -z "$DB_PASSWORD" ]]; then
-    echo -n "Enter MySQL password for user '$DB_USER': "
-    read -s DB_PASSWORD
-    echo
+# Construct MySQL connection arguments
+# Use -p without password to prompt for password securely
+if [[ -n "$DB_PASSWORD" ]]; then
+    # Password provided via command line (less secure but still supported)
+    MYSQL_CMD_ARGS=(-h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD")
+    MYSQLDUMP_CMD_ARGS=(-h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD")
+    PASSWORD_MODE="provided"
+else
+    # No password provided - use -p to prompt for password (more secure)
+    MYSQL_CMD_ARGS=(-h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p)
+    MYSQLDUMP_CMD_ARGS=(-h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p)
+    PASSWORD_MODE="prompt"
 fi
 
-# Construct MySQL connection string
-MYSQL_CMD="mysql -h$DB_HOST -P$DB_PORT -u$DB_USER -p$DB_PASSWORD"
-MYSQLDUMP_CMD="mysqldump -h$DB_HOST -P$DB_PORT -u$DB_USER -p$DB_PASSWORD"
+# Create functions to execute MySQL commands safely
+mysql_exec() {
+    if [[ "$PASSWORD_MODE" == "prompt" ]]; then
+        echo "MySQL password required for: $*" >&2
+    fi
+    mysql "${MYSQL_CMD_ARGS[@]}" "$@"
+}
+
+mysqldump_exec() {
+    if [[ "$PASSWORD_MODE" == "prompt" ]]; then
+        echo "MySQL password required for mysqldump operation" >&2
+    fi
+    mysqldump "${MYSQLDUMP_CMD_ARGS[@]}" "$@"
+}
 
 print_status "Starting development database creation process..."
 print_status "Source database: $PROD_DB"
 print_status "Development database: $DEV_DB"
 print_status "MySQL host: $DB_HOST:$DB_PORT"
 print_status "MySQL user: $DB_USER"
+if [[ "$PASSWORD_MODE" == "prompt" ]]; then
+    print_status "Password mode: Will prompt for password at each MySQL operation (secure)"
+else
+    print_status "Password mode: Using provided password (less secure)"
+fi
 
 # Test MySQL connection
 print_status "Testing MySQL connection..."
-if ! $MYSQL_CMD -e "SELECT 1;" > /dev/null 2>&1; then
+if ! mysql_exec -e "SELECT 1;" > /dev/null 2>&1; then
     print_error "Failed to connect to MySQL server. Please check your credentials and connection settings."
     exit 1
 fi
@@ -150,7 +178,7 @@ print_success "MySQL connection successful"
 
 # Check if source database exists
 print_status "Checking if source database '$PROD_DB' exists..."
-if ! $MYSQL_CMD -e "USE $PROD_DB;" > /dev/null 2>&1; then
+if ! mysql_exec -e "USE $PROD_DB;" > /dev/null 2>&1; then
     print_error "Source database '$PROD_DB' does not exist."
     exit 1
 fi
@@ -158,10 +186,10 @@ print_success "Source database '$PROD_DB' found"
 
 # Check if development database already exists
 print_status "Checking if development database '$DEV_DB' exists..."
-if $MYSQL_CMD -e "USE $DEV_DB;" > /dev/null 2>&1; then
+if mysql_exec -e "USE $DEV_DB;" > /dev/null 2>&1; then
     if [[ "$DROP_EXISTING" == true ]]; then
         print_warning "Development database '$DEV_DB' already exists. Dropping it..."
-        $MYSQL_CMD -e "DROP DATABASE $DEV_DB;"
+        mysql_exec -e "DROP DATABASE $DEV_DB;"
         print_success "Existing development database dropped"
     else
         print_error "Development database '$DEV_DB' already exists. Use -f or --force to drop it."
@@ -171,18 +199,18 @@ fi
 
 # Create development database
 print_status "Creating development database '$DEV_DB'..."
-$MYSQL_CMD -e "CREATE DATABASE $DEV_DB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+mysql_exec -e "CREATE DATABASE $DEV_DB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 print_success "Development database '$DEV_DB' created"
 
 # Create backup of source database
 print_status "Creating backup of source database to '$BACKUP_FILE'..."
-$MYSQLDUMP_CMD --single-transaction --routines --triggers --databases $PROD_DB > "$BACKUP_FILE"
+mysqldump_exec --single-transaction --routines --triggers --databases $PROD_DB > "$BACKUP_FILE"
 print_success "Backup created successfully"
 
 # Copy structure and data to development database
 print_status "Copying structure and data to development database..."
 # Extract just the database content (without CREATE DATABASE statement)
-sed "s/CREATE DATABASE \`$PROD_DB\`/CREATE DATABASE IF NOT EXISTS \`$DEV_DB\`/g; s/USE \`$PROD_DB\`/USE \`$DEV_DB\`/g" "$BACKUP_FILE" | $MYSQL_CMD
+sed "s/CREATE DATABASE \`$PROD_DB\`/CREATE DATABASE IF NOT EXISTS \`$DEV_DB\`/g; s/USE \`$PROD_DB\`/USE \`$DEV_DB\`/g" "$BACKUP_FILE" | mysql_exec
 print_success "Data copied to development database"
 
 # Clean sensitive data if requested
@@ -194,19 +222,20 @@ if [[ "$CLEAN_SENSITIVE_DATA" == true ]]; then
 USE $DEV_DB;
 
 -- Clean user passwords and reset to a development default
+-- Note: Using actual column names from users table (password, administrator)
 UPDATE users SET 
-    password_hash = '\$2a\$10\$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', -- password: 'password'
+    password = '\$2a\$10\$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', -- password: 'password'
     email = CONCAT('dev_user_', id, '@example.com')
-WHERE role != 'admin';
+WHERE administrator != 1;
 
 -- Keep admin accounts but reset password
 UPDATE users SET 
-    password_hash = '\$2a\$10\$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi' -- password: 'password'
-WHERE role = 'admin';
+    password = '\$2a\$10\$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi' -- password: 'password'
+WHERE administrator = 1;
 
 -- Add a default development admin user if not exists
-INSERT IGNORE INTO users (username, password_hash, role, email, created_at) 
-VALUES ('dev_admin', '\$2a\$10\$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'admin', 'dev_admin@example.com', NOW());
+INSERT IGNORE INTO users (username, password, administrator, email, created_at) 
+VALUES ('dev_admin', '\$2a\$10\$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 1, 'dev_admin@example.com', NOW());
 
 -- Clean instructor personal information (optional)
 -- UPDATE instructors SET 
@@ -220,7 +249,7 @@ UPDATE schedules SET
 WHERE term NOT LIKE '[DEV]%';
 EOF
 
-    $MYSQL_CMD < /tmp/clean_sensitive_data.sql
+    mysql_exec < /tmp/clean_sensitive_data.sql
     rm /tmp/clean_sensitive_data.sql
     
     print_success "Sensitive data cleaned from development database"
@@ -229,7 +258,7 @@ fi
 
 # Create development-specific .env file
 print_status "Creating development environment file..."
-cat > /Users/carr/scheduler/.env.dev << EOF
+cat > "$PROJECT_ROOT/.env.dev" << EOF
 # Development Database Configuration
 # Copy of production database: $PROD_DB -> $DEV_DB
 DB_HOST=$DB_HOST
@@ -255,8 +284,8 @@ print_success "Development environment file created at .env.dev"
 
 # Verify the copy was successful
 print_status "Verifying database copy..."
-PROD_TABLE_COUNT=$($MYSQL_CMD -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$PROD_DB';" -s -N)
-DEV_TABLE_COUNT=$($MYSQL_CMD -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$DEV_DB';" -s -N)
+PROD_TABLE_COUNT=$(mysql_exec -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$PROD_DB';" -s -N)
+DEV_TABLE_COUNT=$(mysql_exec -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$DEV_DB';" -s -N)
 
 if [[ "$PROD_TABLE_COUNT" != "$DEV_TABLE_COUNT" ]]; then
     print_error "Table count mismatch! Production: $PROD_TABLE_COUNT, Development: $DEV_TABLE_COUNT"
