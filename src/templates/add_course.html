@@ -60,7 +60,14 @@
             <tr>
                 <td><input type="number" id="crn" name="crn" required style="width: 50%;"></td>
                 <td><input type="text" id="section" name="section" required style="width: 50%;"></td>
-                <td>{{.Prefix}}</td>
+                <td>
+                    <select id="prefix" name="prefix" required>
+                        <option value="">Select Prefix</option>
+                        {{range .Prefixes}}
+                            <option value="{{.}}">{{.}}</option>
+                        {{end}}
+                    </select>
+                </td>
                 <td><input type="text" id="course_number" name="course_number" required style="width: 50%;"></td>
                 <td><input type="text" id="title" name="title" required style="width: 100%;"></td>
                 <td>
@@ -111,6 +118,7 @@
                         <option value="PSO" {{if eq .Mode "PSO"}}selected{{end}}>PSO</option>
                         <option value="H" {{if eq .Mode "H"}}selected{{end}}>H</option>
                         <option value="CLAS" {{if eq .Mode "CLAS"}}selected{{end}}>CLAS</option>
+                        <option value="AO" {{if eq .Mode "AO"}}selected{{end}}>AO</option>
                     </select>
                 </td>
                 <td><input type="text" id="comment" name="comment"></td>

@@ -16,10 +16,10 @@ import (
 
 // Test data structures for schedule management
 type TestSchedule struct {
-	ID     int    `json:"id"`
-	Term   string `json:"term"`
-	Year   int    `json:"year"`
-	Prefix string `json:"prefix"`
+	ID         int    `json:"id"`
+	Term       string `json:"term"`
+	Year       int    `json:"year"`
+	Department string `json:"department"` // UPDATED: changed from Prefix to Department
 }
 
 type TestConflict struct {
@@ -46,9 +46,9 @@ func TestScheduleManagement(t *testing.T) {
 
 	// Mock schedules data
 	mockSchedules := []TestSchedule{
-		{ID: 1, Term: "Fall", Year: 2024, Prefix: "CS"},
-		{ID: 2, Term: "Spring", Year: 2025, Prefix: "MATH"},
-		{ID: 3, Term: "Summer", Year: 2024, Prefix: "ENG"},
+		{ID: 1, Term: "Fall", Year: 2024, Department: "Computer Science"},
+		{ID: 2, Term: "Spring", Year: 2025, Department: "Mathematics"},
+		{ID: 3, Term: "Summer", Year: 2024, Department: "Engineering"},
 	}
 
 	// Mock delete schedule handler
@@ -552,16 +552,16 @@ func TestAPIEndpoints(t *testing.T) {
 func TestBusinessLogic(t *testing.T) {
 	t.Run("Schedule Validation", func(t *testing.T) {
 		validSchedules := []TestSchedule{
-			{Term: "Fall", Year: 2024, Prefix: "CS"},
-			{Term: "Spring", Year: 2025, Prefix: "MATH"},
-			{Term: "Summer", Year: 2024, Prefix: "ENG"},
+			{Term: "Fall", Year: 2024, Department: "Computer Science"},
+			{Term: "Spring", Year: 2025, Department: "Mathematics"},
+			{Term: "Summer", Year: 2024, Department: "Engineering"},
 		}
 
 		invalidSchedules := []TestSchedule{
-			{Term: "", Year: 2024, Prefix: "CS"},        // Missing term
-			{Term: "Fall", Year: 0, Prefix: "CS"},       // Invalid year
-			{Term: "Fall", Year: 2024, Prefix: ""},      // Missing prefix
-			{Term: "Invalid", Year: 2024, Prefix: "CS"}, // Invalid term
+			{Term: "", Year: 2024, Department: "Computer Science"},        // Missing term
+			{Term: "Fall", Year: 0, Department: "Computer Science"},       // Invalid year
+			{Term: "Fall", Year: 2024, Department: ""},                    // Missing department
+			{Term: "Invalid", Year: 2024, Department: "Computer Science"}, // Invalid term
 		}
 
 		validTerms := []string{"Fall", "Spring", "Summer", "Winter"}
@@ -569,13 +569,13 @@ func TestBusinessLogic(t *testing.T) {
 		for _, schedule := range validSchedules {
 			assert.NotEmpty(t, schedule.Term, "Schedule term should not be empty")
 			assert.Greater(t, schedule.Year, 2000, "Schedule year should be reasonable")
-			assert.NotEmpty(t, schedule.Prefix, "Schedule prefix should not be empty")
+			assert.NotEmpty(t, schedule.Department, "Schedule department should not be empty")
 			assert.Contains(t, validTerms, schedule.Term, "Schedule term should be valid")
 		}
 
 		for _, schedule := range invalidSchedules {
 			isInvalid := schedule.Term == "" || schedule.Year <= 2000 ||
-				schedule.Prefix == "" || !contains(validTerms, schedule.Term)
+				schedule.Department == "" || !contains(validTerms, schedule.Term)
 			assert.True(t, isInvalid, "Invalid schedule should be detected")
 		}
 	})
@@ -648,8 +648,8 @@ func TestConflictDetectionPreSelection(t *testing.T) {
 		preSelectedSchedule2 := c.Query("schedule2")
 
 		mockSchedules := []TestSchedule{
-			{ID: 1, Term: "Fall", Year: 2024, Prefix: "CS"},
-			{ID: 2, Term: "Spring", Year: 2025, Prefix: "MATH"},
+			{ID: 1, Term: "Fall", Year: 2024, Department: "Computer Science"},
+			{ID: 2, Term: "Spring", Year: 2025, Department: "Mathematics"},
 		}
 
 		c.JSON(http.StatusOK, gin.H{
