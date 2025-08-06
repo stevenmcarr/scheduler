@@ -326,6 +326,15 @@ func (scheduler *wmu_scheduler) RenderCoursesPageGin(c *gin.Context) {
 		return
 	}
 
+	prefixes, err := scheduler.GetPrefixesForSchedule(id)
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
+			"Error": "Error fetching prefixes: " + err.Error(),
+			"User":  user,
+		})
+		return
+	}
+
 	scheduleName, err := scheduler.GetScheduleName(id)
 	if err != nil {
 		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
@@ -367,6 +376,7 @@ func (scheduler *wmu_scheduler) RenderCoursesPageGin(c *gin.Context) {
 		"User":         user,
 		"ScheduleName": scheduleName,
 		"ScheduleID":   id,
+		"Prefixes":     prefixes,
 		"Courses":      courses,
 		"Instructors":  instructors,
 		"Rooms":        rooms,
@@ -475,6 +485,7 @@ func (scheduler *wmu_scheduler) SaveCoursesGin(c *gin.Context) {
 		var instructorID = -1
 		var timeslotID = -1
 		var roomID = -1
+		var prefixID = -1
 
 		if instructorIDStr := getStringFromInterface(courseData["instructor_id"]); instructorIDStr != "" && instructorIDStr != "<nil>" && instructorIDStr != "null" {
 			instructorID = getIntFromInterface(courseData["instructor_id"])
@@ -488,7 +499,15 @@ func (scheduler *wmu_scheduler) SaveCoursesGin(c *gin.Context) {
 			roomID = getIntFromInterface(courseData["room_id"])
 		}
 
-		err = scheduler.AddOrUpdateCourse(crn, section, courseNumber, title, minCredits, maxCredits, minContact, maxContact, cap, approval, lab, instructorID, timeslotID, roomID, mode, status, comment, 0)
+		if prefixStr := getStringFromInterface(courseData["prefix"]); prefixStr != "" && prefixStr != "<nil>" && prefixStr != "null" {
+			prefixID, err = scheduler.GetPrefixID(prefixStr)
+			if err != nil {
+				errors = append(errors, fmt.Sprintf("Invalid prefix '%s' for course ID %d: %v", prefixStr, id, err))
+				continue
+			}
+		}
+
+		err = scheduler.AddOrUpdateCourse(crn, section, prefixID, courseNumber, title, minCredits, maxCredits, minContact, maxContact, cap, approval, lab, instructorID, timeslotID, roomID, mode, status, comment, 0)
 		if err != nil {
 			errors = append(errors, fmt.Sprintf("Failed to update course ID %d: %v", id, err))
 			continue
@@ -549,7 +568,7 @@ func (scheduler *wmu_scheduler) RenderAddCoursePageGin(c *gin.Context) {
 	}
 
 	// Get Prefix for the schedule
-	prefix, err := scheduler.GetPrefixForSchedule(id)
+	prefixes, err := scheduler.GetPrefixesForSchedule(id)
 	if err != nil {
 		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
 			"Error": "Error fetching prefix: " + err.Error(),
@@ -588,7 +607,7 @@ func (scheduler *wmu_scheduler) RenderAddCoursePageGin(c *gin.Context) {
 
 	data := gin.H{
 		"User":        user,
-		"Prefix":      prefix.Prefix,
+		"Prefixes":    prefixes,
 		"Instructors": instructors,
 		"Timeslots":   timeslots,
 		"Rooms":       rooms,
@@ -868,7 +887,7 @@ func (scheduler *wmu_scheduler) ShowImportPage(c *gin.Context) {
 		"CSRFToken": csrf.GetToken(c),
 	}
 
-	prefixes, err := scheduler.GetAllPrefixes()
+	departments, err := scheduler.GetAllDepartments()
 	if err != nil {
 		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
 			"Error": "Error fetching departments: " + err.Error(),
@@ -876,7 +895,7 @@ func (scheduler *wmu_scheduler) ShowImportPage(c *gin.Context) {
 		})
 		return
 	}
-	data["Prefixes"] = prefixes
+	data["Departments"] = departments
 
 	c.HTML(http.StatusOK, "import.html", data)
 }
@@ -1254,6 +1273,7 @@ func (scheduler *wmu_scheduler) DeleteScheduleGin(c *gin.Context) {
 // ExcelCourseData represents a course row from Excel
 type ExcelCourseData struct {
 	CRN               string
+	Prefix            string
 	CourseID          string
 	Section           string
 	Status            string
@@ -1293,57 +1313,84 @@ func (scheduler *wmu_scheduler) ImportExcelSchedule(filePath string, schedule *S
 	}
 	defer f.Close()
 
-	// Get the first sheet (CS)
-	sheetName := f.GetSheetList()[0]
-
-	// Get all rows
-	rows, err := f.GetRows(sheetName)
-	if err != nil {
-		return fmt.Errorf("error reading Excel sheet: %v", err)
+	// Get all sheets
+	sheetList := f.GetSheetList()
+	if len(sheetList) == 0 {
+		return fmt.Errorf("no sheets found in Excel file")
 	}
 
-	if len(rows) < 6 {
-		return fmt.Errorf("insufficient data in Excel file")
+	// Process all sheets except the last one
+	sheetsToProcess := sheetList[:len(sheetList)-1]
+	if len(sheetsToProcess) == 0 {
+		return fmt.Errorf("no sheets to process (need at least 2 sheets)")
 	}
 
-	// Headers are in row 5 (index 4)
-	headers := rows[4]
+	var totalImportedCount int
+	var totalErrorCount int
 
-	// Create a map of column indices
-	columnMap := make(map[string]int)
-	for i, header := range headers {
-		columnMap[strings.TrimSpace(header)] = i
-	}
+	for _, sheetName := range sheetsToProcess {
+		AppLogger.LogInfo(fmt.Sprintf("Processing sheet: %s", sheetName))
 
-	// Import courses starting from row 6 (index 5)
-	var importedCount int
-	var errorCount int
-
-	for i := 5; i < len(rows); i++ {
-		row := rows[i]
-
-		// Skip empty rows
-		if len(row) == 0 || strings.TrimSpace(row[0]) == "" {
-			continue
-		}
-
-		// Parse course data
-		courseData := parseExcelRow(row, columnMap)
-
-		// Skip rows that don't have CRN (likely comment rows)
-		if courseData.CRN == "" || !isValidCRN(courseData.CRN) {
-			continue
-		}
-
-		// Import the course
-		err := scheduler.importCourseFromExcel(courseData, schedule)
+		// Get all rows for this sheet
+		rows, err := f.GetRows(sheetName)
 		if err != nil {
-			AppLogger.LogError(fmt.Sprintf("Error importing course CRN %s", courseData.CRN), err)
-			errorCount++
-		} else {
-			importedCount++
+			AppLogger.LogError(fmt.Sprintf("Error reading sheet %s", sheetName), err)
+			totalErrorCount++
+			continue
 		}
+
+		if len(rows) < 6 {
+			AppLogger.LogWarning(fmt.Sprintf("Insufficient data in sheet %s (need at least 6 rows)", sheetName))
+			continue
+		}
+
+		// Headers are in row 5 (index 4)
+		headers := rows[4]
+
+		// Create a map of column indices
+		columnMap := make(map[string]int)
+		for i, header := range headers {
+			columnMap[strings.TrimSpace(header)] = i
+		}
+
+		// Import courses starting from row 6 (index 5)
+		var sheetImportedCount int
+		var sheetErrorCount int
+
+		for i := 5; i < len(rows); i++ {
+			row := rows[i]
+
+			// Skip empty rows
+			if len(row) == 0 || strings.TrimSpace(row[0]) == "" {
+				continue
+			}
+
+			// Parse course data
+			courseData := parseExcelRow(row, columnMap)
+
+			// Skip rows that don't have CRN (likely comment rows)
+			if courseData.CRN == "" || !isValidCRN(courseData.CRN) {
+				continue
+			}
+
+			// Import the course
+			err := scheduler.importCourseFromExcel(courseData, schedule)
+			if err != nil {
+				AppLogger.LogError(fmt.Sprintf("Error importing course CRN %s from sheet %s", courseData.CRN, sheetName), err)
+				sheetErrorCount++
+			} else {
+				sheetImportedCount++
+			}
+		}
+
+		AppLogger.LogInfo(fmt.Sprintf("Sheet %s completed: %d courses imported, %d errors", sheetName, sheetImportedCount, sheetErrorCount))
+		totalImportedCount += sheetImportedCount
+		totalErrorCount += sheetErrorCount
 	}
+
+	// Update the final counts
+	importedCount := totalImportedCount
+	errorCount := totalErrorCount
 
 	AppLogger.LogInfo(fmt.Sprintf("Import completed: %d courses imported, %d errors", importedCount, errorCount))
 	return nil
@@ -1431,6 +1478,20 @@ func (scheduler *wmu_scheduler) importCourseFromExcel(data ExcelCourseData, sche
 		return fmt.Errorf("invalid course number in Course ID: %s", data.CourseID)
 	}
 
+	prefixId := -1
+	prefixId, err = scheduler.GetPrefixID(courseParts[0])
+	if err != nil {
+		return fmt.Errorf("failed to get prefix ID for %s: %v", courseParts[0], err)
+	}
+
+	isInDepartment, err := scheduler.IsPrefixInDepartment(schedule.Department, prefixId)
+	if err != nil {
+		return fmt.Errorf("failed to check if prefix %s is in department %s: %v", courseParts[0], schedule.Department, err)
+	}
+	if !isInDepartment {
+		return fmt.Errorf("prefix %s is not in the department %s", courseParts[0], schedule.Department)
+	}
+
 	// Parse CRN
 	crn, err := strconv.Atoi(data.CRN)
 	if err != nil {
@@ -1494,7 +1555,7 @@ func (scheduler *wmu_scheduler) importCourseFromExcel(data ExcelCourseData, sche
 	instructorID := -1
 	if data.PrimaryInstructor != "" {
 		var err error
-		instructorID, err = scheduler.findOrCreateInstructor(data.PrimaryInstructor)
+		instructorID, err = scheduler.findOrCreateInstructor(data.PrimaryInstructor, schedule.Department)
 		if err != nil {
 			AppLogger.LogWarning(fmt.Sprintf("Could not create instructor for %s: %v", data.PrimaryInstructor, err))
 			instructorID = -1 // This will be converted to NULL
@@ -1517,7 +1578,7 @@ func (scheduler *wmu_scheduler) importCourseFromExcel(data ExcelCourseData, sche
 		lab = 1
 	}
 
-	err = scheduler.AddOrUpdateCourse(crn, sectionInt, courseNum, data.Title,
+	err = scheduler.AddOrUpdateCourse(crn, sectionInt, prefixId, courseNum, data.Title,
 		minCredits, maxCredits, minContactHours, maxContactHours, capacity, appr, lab, instructorID, timeSlotID,
 		roomID, data.MeetingType, "Scheduled", data.Comment, schedule.ID)
 
@@ -1557,11 +1618,17 @@ func (scheduler *wmu_scheduler) ImportExcelHandler(c *gin.Context) {
 	// Get form parameters
 	term := c.PostForm("term")
 	yearStr := c.PostForm("year")
-	prefixName := c.PostForm("prefix")
+	departmentIDStr := c.PostForm("department")
 
 	year, err := strconv.Atoi(yearStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid year"})
+		return
+	}
+
+	departmentID, err := strconv.Atoi(departmentIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid department ID"})
 		return
 	}
 
@@ -1574,7 +1641,7 @@ func (scheduler *wmu_scheduler) ImportExcelHandler(c *gin.Context) {
 	}
 
 	// Create schedule if it doesn't exist, otherwise get existing schedule
-	schedule, err := scheduler.AddOrGetSchedule(term, year, prefixName)
+	schedule, err := scheduler.AddOrGetSchedule(term, year, departmentID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create schedule"})
 		return
@@ -3154,7 +3221,7 @@ func (scheduler *wmu_scheduler) ExportCoursesToExcel(c *gin.Context) {
 	f.SetSheetName("Sheet1", sheetName)
 
 	// Row 1: Merged header with schedule info (A1:E1)
-	headerText := fmt.Sprintf("%s %s %d", schedule.Prefix, schedule.Term, schedule.Year)
+	headerText := fmt.Sprintf("%s %s %d", schedule.Department, schedule.Term, schedule.Year)
 	f.SetCellValue(sheetName, "A1", headerText)
 	f.MergeCell(sheetName, "A1", "E1")
 
@@ -3202,7 +3269,6 @@ func (scheduler *wmu_scheduler) ExportCoursesToExcel(c *gin.Context) {
 	f.SetCellValue(sheetName, "A3", fmt.Sprintf("%s %d", schedule.Term, schedule.Year))
 	f.SetCellValue(sheetName, "B3", "Engineering & Applied Sciences")
 	f.SetCellValue(sheetName, "C3", schedule.Department)
-	f.SetCellValue(sheetName, "D3", schedule.Prefix)
 	f.SetCellValue(sheetName, "E3", "Main")
 
 	// Style for row 3 - bold black text
@@ -3410,7 +3476,7 @@ func (scheduler *wmu_scheduler) ExportCoursesToExcel(c *gin.Context) {
 	f.SetColWidth(sheetName, "O", "O", 15) // Comment
 
 	// Generate filename with schedule info
-	filename := fmt.Sprintf("%s_%s_%d.xlsx", schedule.Prefix, schedule.Term, schedule.Year)
+	filename := fmt.Sprintf("%s_%s_%d.xlsx", schedule.Department, schedule.Term, schedule.Year)
 
 	// Set response headers for file download
 	c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -3644,10 +3710,10 @@ func (scheduler *wmu_scheduler) DetectScheduleConflictsGin(c *gin.Context) {
 	var schedule1Name, schedule2Name string
 	for _, sched := range schedules {
 		if sched.ID == id1 {
-			schedule1Name = fmt.Sprintf("%s %s %d", sched.Prefix, sched.Term, sched.Year)
+			schedule1Name = fmt.Sprintf("%s %s %d", sched.Department, sched.Term, sched.Year)
 		}
 		if sched.ID == id2 {
-			schedule2Name = fmt.Sprintf("%s %s %d", sched.Prefix, sched.Term, sched.Year)
+			schedule2Name = fmt.Sprintf("%s %s %d", sched.Department, sched.Term, sched.Year)
 		}
 	}
 

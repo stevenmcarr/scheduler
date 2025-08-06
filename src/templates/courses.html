@@ -262,6 +262,10 @@
                     <input type="text" id="filter-crn" class="filter-input" placeholder="Filter by CRN">
                 </div>
                 <div class="filter-group">
+                    <label for="filter-prefix">Prefix</label>
+                    <input type="text" id="filter-prefix" class="filter-input" placeholder="Filter by Prefix">
+                </div>
+                <div class="filter-group">
                     <label for="filter-course-number">Course #</label>
                     <input type="text" id="filter-course-number" class="filter-input" placeholder="Filter by Course #">
                 </div>
@@ -289,7 +293,7 @@
                     <tr>
                         <th class="sortable" onclick="sortTable(0)">CRN</th>
                         <th>Section</th>
-                        <th>Prefix</th>
+                        <th class="sortable" onclick="sortTable(2)">Prefix</th>
                         <th class="sortable" onclick="sortTable(3)">Course #</th>
                         <th>Title</th>
                         <th>Credits</th>
@@ -317,7 +321,17 @@
                         <td>
                             <input type="number" class="section-input" value="{{.Section}}" name="section">
                         </td>
-                        <td>{{.Prefix}}</td>
+                        <td>
+                            <select name="prefix">
+                                <option value="">Select Prefix</option>
+                                {{$course := .}}
+                                {{range $.Prefixes}}
+                                <option value="{{.Prefix}}" {{if eq .Prefix $course.Prefix}}selected{{end}}>
+                                    {{.Prefix}}
+                                </option>
+                                {{end}}
+                            </select>
+                        </td>
                         <td>
                             <input type="number" class="course-number-input" value="{{.CourseNumber}}" name="course_number">
                         </td>
@@ -379,6 +393,7 @@
                                 <option value="PSO" {{if eq .Mode "PSO"}}selected{{end}}>PSO</option>
                                 <option value="H" {{if eq .Mode "H"}}selected{{end}}>H</option>
                                 <option value="CLAS" {{if eq .Mode "CLAS"}}selected{{end}}>CLAS</option>
+                                <option value="AO" {{if eq .Mode "AO"}}selected{{end}}>AO</option>
                             </select>
                         </td>
                         <td>
@@ -421,6 +436,7 @@
         function initializeFilters() {
             const filterInputs = [
                 'filter-crn',
+                'filter-prefix',
                 'filter-course-number', 
                 'filter-title',
                 'filter-instructor'
@@ -443,6 +459,7 @@
             
             const filters = {
                 crn: document.getElementById('filter-crn').value.toLowerCase().trim(),
+                prefix: document.getElementById('filter-prefix').value.toLowerCase().trim(),
                 courseNumber: document.getElementById('filter-course-number').value.toLowerCase().trim(),
                 title: document.getElementById('filter-title').value.toLowerCase().trim(),
                 instructor: document.getElementById('filter-instructor').value.toLowerCase().trim()
@@ -458,6 +475,7 @@
                 
                 // Extract text content from each relevant column
                 const crn = cells[0].querySelector('input') ? cells[0].querySelector('input').value.toLowerCase() : '';
+                const prefix = cells[2].querySelector('select') ? cells[2].querySelector('select').value.toLowerCase() : '';
                 const courseNumber = cells[3].querySelector('input') ? cells[3].querySelector('input').value.toLowerCase() : '';
                 const title = cells[4].querySelector('input') ? cells[4].querySelector('input').value.toLowerCase() : '';
                 
@@ -471,6 +489,7 @@
                 // Check if row matches all active filters
                 const matches = (
                     (!filters.crn || crn.includes(filters.crn)) &&
+                    (!filters.prefix || cells[2].querySelector('select').value.toLowerCase().startsWith(filters.prefix)) &&
                     (!filters.courseNumber || courseNumber.includes(filters.courseNumber)) &&
                     (!filters.title || title.includes(filters.title)) &&
                     (!filters.instructor || instructor.includes(filters.instructor))
@@ -509,6 +528,7 @@
         
         function clearAllFilters() {
             document.getElementById('filter-crn').value = '';
+            document.getElementById('filter-prefix').value = '';
             document.getElementById('filter-course-number').value = '';
             document.getElementById('filter-title').value = '';
             document.getElementById('filter-instructor').value = '';
@@ -575,6 +595,7 @@
                     id: courseId,
                     crn: row.querySelector('input[name="crn"]').value,
                     section: row.querySelector('input[name="section"]').value,
+                    prefix: row.querySelector('select[name="prefix"]').value,
                     course_number: row.querySelector('input[name="course_number"]').value,
                     title: row.querySelector('input[name="title"]').value,
                     credits: row.querySelector('input[name="credits"]').value,
@@ -645,7 +666,12 @@
                 let aVal, bVal;
                 
                 // Get values based on the column type
-                if (colIdx === 10) { // Instructor column - get select option text
+                if (colIdx === 2) { // Prefix column - get select option text
+                    const aSelect = a.cells[colIdx].querySelector('select');
+                    const bSelect = b.cells[colIdx].querySelector('select');
+                    aVal = aSelect ? aSelect.options[aSelect.selectedIndex].text : '';
+                    bVal = bSelect ? bSelect.options[bSelect.selectedIndex].text : '';
+                } else if (colIdx === 10) { // Instructor column - get select option text
                     const aSelect = a.cells[colIdx].querySelector('select');
                     const bSelect = b.cells[colIdx].querySelector('select');
                     aVal = aSelect ? aSelect.options[aSelect.selectedIndex].text : '';

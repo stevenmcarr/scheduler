@@ -174,31 +174,28 @@ type Schedule struct {
 	Term       string
 	Year       int
 	Department string
-	Prefix     string
+	Prefixes   []Prefix
 	Created    string
 }
 
-func (scheduler *wmu_scheduler) AddOrGetSchedule(term string, year int, prefix string) (*Schedule, error) {
+func (scheduler *wmu_scheduler) AddOrGetSchedule(term string, year int, departmentID int) (*Schedule, error) {
 	// Check if schedule already exists
 	var scheduleID int
 	var created string
-	var prefixID int
-	var departmentName string
-	var departmentID int
+	var department string
 	err := scheduler.database.QueryRow(`
-		SELECT s.id, s.prefix_id, s.created_at, s.department_id, d.name
+		SELECT s.id, s.created_at, d.name
 		FROM schedules s
 		JOIN departments d ON s.department_id = d.id
-		WHERE s.term = ? AND s.year = ?
-	`, term, year).Scan(&scheduleID, &prefixID, &created, &departmentID, &departmentName)
+		WHERE s.term = ? AND s.year = ? AND d.id = ?
+	`, term, year, departmentID).Scan(&scheduleID, &created, &department)
 
 	if err == nil {
 		return &Schedule{
 			ID:         scheduleID,
 			Term:       term,
 			Year:       year,
-			Department: departmentName,
-			Prefix:     prefix,
+			Department: department,
 			Created:    created,
 		}, nil
 	}
@@ -206,22 +203,10 @@ func (scheduler *wmu_scheduler) AddOrGetSchedule(term string, year int, prefix s
 		return nil, err
 	}
 
-	prefixID, err = strconv.Atoi(prefix)
-	if err != nil {
-		return nil, fmt.Errorf("invalid prefix id: %v", err)
-	}
-	// Get department_id and prefix_id from prefixes table/
-	err = scheduler.database.QueryRow("SELECT id, department_id FROM prefixes WHERE id = ?", prefixID).Scan(&prefixID, &departmentID)
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("prefix '%s' not found", prefix)
-	}
-	if err != nil {
-		return nil, err
-	}
 	// Insert new schedule
 	response, err := scheduler.database.Exec(
-		"INSERT INTO schedules (term, year, department_id, prefix_id) VALUES (?, ?, ?, ?)",
-		term, year, departmentID, prefixID,
+		"INSERT INTO schedules (term, year, department_id) VALUES (?, ?, ?)",
+		term, year, departmentID,
 	)
 	if err != nil {
 		return nil, err
@@ -232,7 +217,17 @@ func (scheduler *wmu_scheduler) AddOrGetSchedule(term string, year int, prefix s
 	}
 
 	// Get created_at for the new schedule
-	err = scheduler.database.QueryRow("SELECT created_at FROM schedules WHERE id = ?", id).Scan(&created)
+	err = scheduler.database.QueryRow(`
+		SELECT s.created_at, d.name
+		FROM schedules s
+		JOIN departments d ON s.department_id = d.id
+		WHERE s.id = ?
+	`, id).Scan(&created, &department)
+	if err != nil {
+		return nil, err
+	}
+
+	prefixes, err := scheduler.GetPrefixesForSchedule(int(id))
 	if err != nil {
 		return nil, err
 	}
@@ -241,8 +236,8 @@ func (scheduler *wmu_scheduler) AddOrGetSchedule(term string, year int, prefix s
 		ID:         int(id),
 		Term:       term,
 		Year:       year,
-		Department: departmentName,
-		Prefix:     prefix,
+		Department: department,
+		Prefixes:   prefixes,
 		Created:    created,
 	}, nil
 }
@@ -285,15 +280,14 @@ func (scheduler *wmu_scheduler) DeleteSchedule(id int) error {
 	return nil
 }
 
-func (scheduler *wmu_scheduler) GetSchedule(term string, year int, prefix string) (*Schedule, error) {
+func (scheduler *wmu_scheduler) GetSchedule(term string, year int, department string) (*Schedule, error) {
 	var schedule Schedule
 	err := scheduler.database.QueryRow(`
-		SELECT s.id, s.term, s.year, d.name, p.prefix, s.created_at
+		SELECT s.id, s.term, s.year, d.name, s.created_at
 		FROM schedules s
-		JOIN prefixes p ON s.prefix_id = p.id
 		JOIN departments d ON s.department_id = d.id
-		WHERE s.term = ? AND s.year = ? AND p.prefix = ?
-	`, term, year, prefix).Scan(&schedule.ID, &schedule.Term, &schedule.Year, &schedule.Department, &schedule.Prefix, &schedule.Created)
+		WHERE s.term = ? AND s.year = ? AND d.name = ?
+	`, term, year, department).Scan(&schedule.ID, &schedule.Term, &schedule.Year, &schedule.Department, &schedule.Created)
 	if err == sql.ErrNoRows {
 		return nil, nil // Schedule not found
 	}
@@ -305,11 +299,10 @@ func (scheduler *wmu_scheduler) GetSchedule(term string, year int, prefix string
 
 func (scheduler *wmu_scheduler) GetAllSchedules() ([]Schedule, error) {
 	rows, err := scheduler.database.Query(`
-		SELECT s.id, s.term, s.year, p.prefix, d.name, s.created_at 
+		SELECT s.id, s.term, s.year, d.name, s.created_at 
 		FROM schedules s
-		JOIN prefixes p ON s.prefix_id = p.id
 		JOIN departments d ON s.department_id = d.id
-		ORDER BY s.year DESC, s.term, d.name, p.prefix
+		ORDER BY s.year DESC, s.term, d.name
 	`)
 	if err != nil {
 		return nil, err
@@ -319,9 +312,14 @@ func (scheduler *wmu_scheduler) GetAllSchedules() ([]Schedule, error) {
 	var schedules []Schedule
 	for rows.Next() {
 		var schedule Schedule
-		if err := rows.Scan(&schedule.ID, &schedule.Term, &schedule.Year, &schedule.Prefix, &schedule.Department, &schedule.Created); err != nil {
+		if err := rows.Scan(&schedule.ID, &schedule.Term, &schedule.Year, &schedule.Department, &schedule.Created); err != nil {
 			return nil, err
 		}
+		prefixes, err := scheduler.GetPrefixesForSchedule(schedule.ID)
+		if err != nil {
+			return nil, err
+		}
+		schedule.Prefixes = prefixes
 		schedules = append(schedules, schedule)
 	}
 	return schedules, nil
@@ -330,54 +328,22 @@ func (scheduler *wmu_scheduler) GetAllSchedules() ([]Schedule, error) {
 func (scheduler *wmu_scheduler) GetScheduleByID(id int) (*Schedule, error) {
 	var schedule Schedule
 	err := scheduler.database.QueryRow(`
-	SELECT s.id, s.term, s.year, p.prefix , d.name
+	SELECT s.id, s.term, s.year, d.name
 		FROM schedules s
-		JOIN prefixes p ON s.prefix_id = p.id
 		JOIN departments d ON s.department_id = d.id
-		WHERE s.id = ?`, id).Scan(&schedule.ID, &schedule.Term, &schedule.Year, &schedule.Prefix, &schedule.Department)
+		WHERE s.id = ?`, id).Scan(&schedule.ID, &schedule.Term, &schedule.Year, &schedule.Department)
 	if err == sql.ErrNoRows {
 		return nil, nil // Schedule not found
 	}
 	if err != nil {
 		return nil, err
 	}
+	prefixes, err := scheduler.GetPrefixesForSchedule(schedule.ID)
+	if err != nil {
+		return nil, err
+	}
+	schedule.Prefixes = prefixes
 	return &schedule, nil
-}
-
-func (scheduler *wmu_scheduler) GetSchedulesByTerm(term string) ([]Schedule, error) {
-	rows, err := scheduler.database.Query("SELECT id, term, year, prefix FROM schedules WHERE term = ?", term)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var schedules []Schedule
-	for rows.Next() {
-		var schedule Schedule
-		if err := rows.Scan(&schedule.ID, &schedule.Term, &schedule.Year, &schedule.Prefix); err != nil {
-			return nil, err
-		}
-		schedules = append(schedules, schedule)
-	}
-	return schedules, nil
-}
-
-func (scheduler *wmu_scheduler) GetSchedulesByYear(year int) ([]Schedule, error) {
-	rows, err := scheduler.database.Query("SELECT id, term, prefix FROM schedules WHERE year = ?", year)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var schedules []Schedule
-	for rows.Next() {
-		var schedule Schedule
-		if err := rows.Scan(&schedule.ID, &schedule.Term, &schedule.Prefix); err != nil {
-			return nil, err
-		}
-		schedules = append(schedules, schedule)
-	}
-	return schedules, nil
 }
 
 type Course struct {
@@ -398,25 +364,25 @@ type Course struct {
 	Approval     bool // Changed from Appr to Approval
 	Lab          bool
 	InstructorID int
-	TimeSlotID   int // New field for timeslot ID
-	RoomID       int // New field for room ID
-	Mode         string
+	TimeSlotID   int    // New field for timeslot ID
+	RoomID       int    // New field for room ID
+	Mode         string // IP, FSO, PSO, H, CLAS, AO
 	Status       string
 	Comment      string // New field for comments
 }
 
 func (scheduler *wmu_scheduler) GetActiveCoursesForSchedule(scheduleID int) ([]Course, error) {
 	rows, err := scheduler.database.Query(`
-		SELECT c.id, c.crn, c.section, p.prefix, c.course_number, c.title, 
+		SELECT c.id, c.crn, p.prefix, c.section, c.course_number, c.title, 
 			   c.min_credits, c.max_credits, c.min_contact, c.max_contact, c.cap, 
 			   c.approval = 1 as approval, c.lab = 1 as lab,
 			   COALESCE(c.instructor_id, -1) as instructor_id,
 			   COALESCE(c.timeslot_id, -1) as timeslot_id,
 			   COALESCE(c.room_id, -1) as room_id,
-			   c.mode, c.status, c.comment
+			   c.mode, c.status, c.comment 
 		FROM courses c
 		JOIN schedules s ON c.schedule_id = s.id
-		JOIN prefixes p ON s.prefix_id = p.id
+		JOIN prefixes p ON c.prefix_id = p.id
 		WHERE c.schedule_id = ? AND c.status != 'Deleted'
 		ORDER BY c.course_number, c.crn, c.section
 	`, scheduleID)
@@ -429,7 +395,7 @@ func (scheduler *wmu_scheduler) GetActiveCoursesForSchedule(scheduleID int) ([]C
 	for rows.Next() {
 		var course Course
 		course.ScheduleID = scheduleID // Set ScheduleID from the parameter
-		if err := rows.Scan(&course.ID, &course.CRN, &course.Section, &course.Prefix, &course.CourseNumber, &course.Title, &course.MinCredits, &course.MaxCredits, &course.MinContact, &course.MaxContact, &course.Cap, &course.Approval, &course.Lab, &course.InstructorID, &course.TimeSlotID, &course.RoomID, &course.Mode, &course.Status, &course.Comment); err != nil {
+		if err := rows.Scan(&course.ID, &course.CRN, &course.Prefix, &course.Section, &course.CourseNumber, &course.Title, &course.MinCredits, &course.MaxCredits, &course.MinContact, &course.MaxContact, &course.Cap, &course.Approval, &course.Lab, &course.InstructorID, &course.TimeSlotID, &course.RoomID, &course.Mode, &course.Status, &course.Comment); err != nil {
 			return nil, err
 		}
 		// Set compatibility fields
@@ -508,22 +474,39 @@ func (scheduler *wmu_scheduler) GetAllPrefixes() ([]Prefix, error) {
 	return prefixes, nil
 }
 
-func (scheduler *wmu_scheduler) GetPrefixForSchedule(scheduleID int) (*Prefix, error) {
-	var prefix Prefix
-	err := scheduler.database.QueryRow(`
-		SELECT p.id, p.prefix, d.name
-		FROM schedules s
-		JOIN prefixes p ON s.prefix_id = p.id
-		JOIN departments d ON p.department_id = d.id
-		WHERE s.id = ?
-	`, scheduleID).Scan(&prefix.ID, &prefix.Prefix, &prefix.Department)
+func (scheduler *wmu_scheduler) GetPrefixesForSchedule(scheduleID int) ([]Prefix, error) {
+	// Get the department_id for the schedule
+	var departmentID int
+	err := scheduler.database.QueryRow("SELECT department_id FROM schedules WHERE id = ?", scheduleID).Scan(&departmentID)
 	if err == sql.ErrNoRows {
-		return nil, nil // Not found
+		return nil, nil // Schedule not found
 	}
 	if err != nil {
 		return nil, err
 	}
-	return &prefix, nil
+
+	// Get all prefixes for the department
+	rows, err := scheduler.database.Query(`
+		SELECT p.id, p.prefix, d.name
+		FROM prefixes p
+		JOIN departments d ON p.department_id = d.id
+		WHERE p.department_id = ?
+		ORDER BY p.prefix
+	`, departmentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var prefixes []Prefix
+	for rows.Next() {
+		var prefix Prefix
+		if err := rows.Scan(&prefix.ID, &prefix.Prefix, &prefix.Department); err != nil {
+			return nil, err
+		}
+		prefixes = append(prefixes, prefix)
+	}
+	return prefixes, nil
 }
 
 type TimeSlot struct {
@@ -766,6 +749,20 @@ func (scheduler *wmu_scheduler) GetAllUsers() ([]User, error) {
 	return users, nil
 }
 
+func (scheduler *wmu_scheduler) GetPrefixID(prefix string) (int, error) {
+	var id int
+	err := scheduler.database.QueryRow(`
+		SELECT id FROM prefixes WHERE prefix = ?
+	`, prefix).Scan(&id)
+	if err == sql.ErrNoRows {
+		return 0, nil // Prefix not found
+	}
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
 func (scheduler *wmu_scheduler) GetPrefix(prefix string) (*Prefix, error) {
 	var p Prefix
 	err := scheduler.database.QueryRow(`
@@ -830,6 +827,7 @@ func (scheduler *wmu_scheduler) AddCourse(
 func (scheduler *wmu_scheduler) AddOrUpdateCourse(
 	crn int,
 	section int,
+	prefixID int,
 	courseNumber int,
 	title string,
 	minCredits int,
@@ -870,9 +868,9 @@ func (scheduler *wmu_scheduler) AddOrUpdateCourse(
 
 	result, err = scheduler.database.Exec(`
 		UPDATE courses SET
-			section = ?, course_number = ?, title = ?, min_credits = ?, max_credits = ?, min_contact = ?, max_contact = ?, cap = ?, approval = ?, lab = ?, instructor_id = ?, timeslot_id = ?, room_id = ?, mode = ?, status = ?, comment = ?
+			section = ?, prefix_id = ?, course_number = ?, title = ?, min_credits = ?, max_credits = ?, min_contact = ?, max_contact = ?, cap = ?, approval = ?, lab = ?, instructor_id = ?, timeslot_id = ?, room_id = ?, mode = ?, status = ?, comment = ?
 		WHERE crn = ?
-	`, section, courseNumber, title, minCredits, maxCredits, minContactHours, maxContactHours, cap, appr, lab, instructorVal, timeslotVal, roomVal, mode, status, comment, crn)
+	`, section, prefixID, courseNumber, title, minCredits, maxCredits, minContactHours, maxContactHours, cap, appr, lab, instructorVal, timeslotVal, roomVal, mode, status, comment, crn)
 
 	if err != nil {
 		return err
@@ -902,9 +900,9 @@ func (scheduler *wmu_scheduler) AddOrUpdateCourse(
 	// CRN doesn't exist, so insert new course
 	_, err = scheduler.database.Exec(`
 		INSERT INTO courses (
-			crn, section, schedule_id, course_number, title, min_credits, max_credits, min_contact, max_contact, cap, approval, lab, instructor_id, timeslot_id, room_id, mode, status, comment
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, crn, section, scheduleID, courseNumber, title, minCredits, maxCredits, minContactHours, maxContactHours, cap, appr, lab, instructorVal, timeslotVal, roomVal, mode, status, comment)
+			crn, section, prefix_id, schedule_id, course_number, title, min_credits, max_credits, min_contact, max_contact, cap, approval, lab, instructor_id, timeslot_id, room_id, mode, status, comment
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, crn, section, prefixID, scheduleID, courseNumber, title, minCredits, maxCredits, minContactHours, maxContactHours, cap, appr, lab, instructorVal, timeslotVal, roomVal, mode, status, comment)
 	return err
 }
 
@@ -1007,11 +1005,23 @@ func (scheduler *wmu_scheduler) findOrCreateRoom(location string) (int, error) {
 	return int(newID), nil
 }
 
-func (scheduler *wmu_scheduler) findOrCreateInstructor(name string) (int, error) {
+func (scheduler *wmu_scheduler) findOrCreateInstructor(name string, department string) (int, error) {
 	// Check if instructor exists
 	var id int
-	query := "SELECT id FROM instructors WHERE name = ?"
-	err := scheduler.database.QueryRow(query, name).Scan(&id)
+	// Parse name to get first and last name
+	nameParts := strings.Split(name, ",")
+	var lastName, firstName string
+	if len(nameParts) >= 2 {
+		lastName = strings.TrimSpace(nameParts[0])
+		firstName = strings.TrimSpace(nameParts[1])
+	} else {
+		// If no comma, assume the whole string is the last name
+		lastName = strings.TrimSpace(name)
+		firstName = ""
+	}
+
+	// Check if instructor exists by last name and first name
+	err := scheduler.database.QueryRow("SELECT id FROM instructors WHERE last_name = ? AND first_name = ?", lastName, firstName).Scan(&id)
 	if err == nil {
 		return id, nil
 	}
@@ -1021,9 +1031,15 @@ func (scheduler *wmu_scheduler) findOrCreateInstructor(name string) (int, error)
 		return -1, fmt.Errorf("error checking for existing instructor: %v", err)
 	}
 
+	// Get department ID
+	departmentID, err := scheduler.GetDepartmentID(department)
+	if err != nil {
+		return -1, fmt.Errorf("error getting department ID: %v", err)
+	}
+
 	// Create new instructor
-	query = "INSERT INTO instructors (name, email, department) VALUES (?, ?, ?)"
-	result, err := scheduler.database.Exec(query, name, "", "Computer Science") // Default department
+	query := "INSERT INTO instructors (last_name, first_name, status, department_id) VALUES (?, ?, ?, ?)"
+	result, err := scheduler.database.Exec(query, lastName, firstName, "full time", departmentID)
 	if err != nil {
 		return -1, fmt.Errorf("error creating instructor: %v", err)
 	}
@@ -1042,7 +1058,7 @@ func (scheduler *wmu_scheduler) UpdateCourseField(courseID int, field string, va
 	allowedFields := map[string]bool{
 		"crn":           true,
 		"section":       true,
-		"prefix":        true,
+		"prefix_id":     true,
 		"course_number": true,
 		"title":         true,
 		"min_credits":   true,
@@ -1242,6 +1258,59 @@ func (scheduler *wmu_scheduler) UpdatePrefix(prefixID int, prefixCode string, de
 	return err
 }
 
+// GetDepartmentID retrieves a department ID by name
+func (scheduler *wmu_scheduler) GetDepartmentID(name string) (int, error) {
+	var id int
+	err := scheduler.database.QueryRow("SELECT id FROM departments WHERE name = ?", name).Scan(&id)
+	if err == sql.ErrNoRows {
+		return 0, nil // Department not found
+	}
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+// GetPrefixIDsForDepartment retrieves all prefix IDs for a given department name
+func (scheduler *wmu_scheduler) GetPrefixIDsForDepartment(departmentName string) ([]int, error) {
+	rows, err := scheduler.database.Query(`
+		SELECT p.id
+		FROM prefixes p
+		JOIN departments d ON p.department_id = d.id
+		WHERE d.name = ?
+		ORDER BY p.prefix
+	`, departmentName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var prefixIDs []int
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		prefixIDs = append(prefixIDs, id)
+	}
+	return prefixIDs, nil
+}
+
+// IsPrefixInDepartment checks if a given prefix ID belongs to the specified department
+func (scheduler *wmu_scheduler) IsPrefixInDepartment(departmentName string, prefixID int) (bool, error) {
+	var count int
+	err := scheduler.database.QueryRow(`
+		SELECT COUNT(*) 
+		FROM prefixes p
+		JOIN departments d ON p.department_id = d.id
+		WHERE d.name = ? AND p.id = ?
+	`, departmentName, prefixID).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 // AddPrefix adds a new prefix
 func (scheduler *wmu_scheduler) AddPrefix(prefixCode string, departmentName string) error {
 	// First, get the department ID from the department name
@@ -1326,7 +1395,7 @@ func (scheduler *wmu_scheduler) GetCoursesWithScheduleData() ([]CourseScheduleIt
 			   COALESCE(ts.F, 0) as friday
 		FROM courses c
 		JOIN schedules s ON c.schedule_id = s.id
-		JOIN prefixes p ON s.prefix_id = p.id
+		JOIN prefixes p ON c.prefix_id = p.id
 		LEFT JOIN instructors i ON c.instructor_id = i.id
 		LEFT JOIN time_slots ts ON c.timeslot_id = ts.id
 		WHERE c.status != 'Deleted'
