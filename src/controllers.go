@@ -3629,25 +3629,28 @@ type ConflictPair struct {
 }
 
 type CourseDetail struct {
-	ID           int
-	CRN          int
-	Section      string
-	ScheduleID   int
-	Prefix       string
-	CourseNumber string
-	Title        string
-	InstructorID int
-	TimeSlotID   int
-	RoomID       int
-	Mode         string
-	TimeSlot     *TimeSlot
+	ID                  int
+	CRN                 int
+	Section             string
+	ScheduleID          int
+	Prefix              string
+	CourseNumber        string
+	Title               string
+	InstructorID        int
+	InstructorFirstName string
+	InstructorLastName  string
+	TimeSlotID          int
+	RoomID              int
+	Mode                string
+	TimeSlot            *TimeSlot
 }
 
 type ConflictReport struct {
-	InstructorConflicts []ConflictPair
-	RoomConflicts       []ConflictPair
-	Schedule1ID         int
-	Schedule2ID         int
+	InstructorConflicts   []ConflictPair
+	RoomConflicts         []ConflictPair
+	CrosslistingConflicts []ConflictPair
+	Schedule1ID           int
+	Schedule2ID           int
 }
 
 // DetectScheduleConflictsGin detects conflicts between two schedules
@@ -3837,7 +3840,9 @@ func (scheduler *wmu_scheduler) DetectConflictsBetweenSchedules(schedule1ID, sch
 				}
 
 				// Check for room conflicts (different courses in same room)
-				if course1.RoomID == course2.RoomID && course1.RoomID > 0 && !scheduler.isSameCourse(course1, course2) {
+				// Skip room conflicts if either course is FSO, PSO, or AO mode
+				if course1.RoomID == course2.RoomID && course1.RoomID > 0 && !scheduler.isSameCourse(course1, course2) &&
+					!scheduler.isRoomExemptMode(course1) && !scheduler.isRoomExemptMode(course2) {
 					conflictPair := ConflictPair{
 						Course1: course1,
 						Course2: course2,
@@ -3853,11 +3858,20 @@ func (scheduler *wmu_scheduler) DetectConflictsBetweenSchedules(schedule1ID, sch
 		}
 	}
 
+	// Detect crosslisting conflicts
+	var crosslistingConflicts []ConflictPair
+	crosslistingConflicts, err = scheduler.detectCrosslistingConflicts(courses1, courses2)
+	if err != nil {
+		AppLogger.LogError("Failed to detect crosslisting conflicts", err)
+		// Continue without crosslisting conflicts rather than failing completely
+	}
+
 	return &ConflictReport{
-		InstructorConflicts: instructorConflicts,
-		RoomConflicts:       roomConflicts,
-		Schedule1ID:         schedule1ID,
-		Schedule2ID:         schedule2ID,
+		InstructorConflicts:   instructorConflicts,
+		RoomConflicts:         roomConflicts,
+		CrosslistingConflicts: crosslistingConflicts,
+		Schedule1ID:           schedule1ID,
+		Schedule2ID:           schedule2ID,
 	}, nil
 }
 
@@ -3877,20 +3891,37 @@ func (scheduler *wmu_scheduler) getCoursesWithDetails(scheduleID int) ([]CourseD
 			return nil, fmt.Errorf("failed to get timeslot for course %d: %v", course.ID, err)
 		}
 
+		// Get instructor names if instructor ID is valid
+		var instructorFirstName, instructorLastName string
+		if course.InstructorID > 0 {
+			instructor, err := scheduler.GetInstructorByID(course.InstructorID)
+			if err != nil {
+				// Log the error but don't fail the entire operation
+				AppLogger.LogError(fmt.Sprintf("Failed to get instructor %d for course %d: %v", course.InstructorID, course.ID, err), nil)
+				instructorFirstName = "Unknown"
+				instructorLastName = "Instructor"
+			} else {
+				instructorFirstName = instructor.FirstName
+				instructorLastName = instructor.LastName
+			}
+		}
+
 		// Populate the TimeSlot information
 		courseDetail = append(courseDetail, CourseDetail{
-			ID:           course.ID,
-			CRN:          course.CRN,
-			Section:      course.Section,
-			ScheduleID:   course.ScheduleID,
-			Prefix:       course.Prefix,
-			CourseNumber: course.CourseNumber,
-			Title:        course.Title,
-			InstructorID: course.InstructorID,
-			TimeSlotID:   course.TimeSlotID,
-			RoomID:       course.RoomID,
-			Mode:         course.Mode,
-			TimeSlot:     timeslot,
+			ID:                  course.ID,
+			CRN:                 course.CRN,
+			Section:             course.Section,
+			ScheduleID:          course.ScheduleID,
+			Prefix:              course.Prefix,
+			CourseNumber:        course.CourseNumber,
+			Title:               course.Title,
+			InstructorID:        course.InstructorID,
+			InstructorFirstName: instructorFirstName,
+			InstructorLastName:  instructorLastName,
+			TimeSlotID:          course.TimeSlotID,
+			RoomID:              course.RoomID,
+			Mode:                course.Mode,
+			TimeSlot:            timeslot,
 		})
 
 	}
@@ -3945,6 +3976,111 @@ func (scheduler *wmu_scheduler) isFSOPSOException(course1, course2 CourseDetail)
 // isSameCourse checks if two courses are the same course (same prefix and course number)
 func (scheduler *wmu_scheduler) isSameCourse(course1, course2 CourseDetail) bool {
 	return course1.Prefix == course2.Prefix && course1.CourseNumber == course2.CourseNumber
+}
+
+// detectCrosslistingConflicts checks for conflicts between crosslisted courses
+func (scheduler *wmu_scheduler) detectCrosslistingConflicts(courses1, courses2 []CourseDetail) ([]ConflictPair, error) {
+	var crosslistingConflicts []ConflictPair
+
+	// Create a map to track unique courses by CRN to avoid duplicates
+	courseMap := make(map[int]CourseDetail)
+
+	// Add all courses to the map, preferring courses from courses1 if duplicates exist
+	for _, course := range courses1 {
+		courseMap[course.CRN] = course
+	}
+	for _, course := range courses2 {
+		if _, exists := courseMap[course.CRN]; !exists {
+			courseMap[course.CRN] = course
+		}
+	}
+
+	// Convert map back to slice for processing
+	allCourses := make([]CourseDetail, 0, len(courseMap))
+	for _, course := range courseMap {
+		allCourses = append(allCourses, course)
+	}
+
+	// Check all unique course pairs for crosslisting conflicts
+	for i, course1 := range allCourses {
+		for j, course2 := range allCourses {
+			if i >= j { // Avoid checking the same pair twice and avoid self-comparison
+				continue
+			}
+
+			// Check if these courses are crosslisted
+			crosslisted, err := scheduler.AreCoursesCrosslisted(course1.CRN, course2.CRN)
+			if err != nil {
+				return nil, fmt.Errorf("error checking crosslisting for CRNs %d and %d: %v", course1.CRN, course2.CRN, err)
+			}
+
+			if crosslisted {
+				// Crosslisted courses should have different CRNs by definition
+				// If they have the same CRN, that's a data error, so log it and skip
+				if course1.CRN == course2.CRN {
+					AppLogger.LogError(fmt.Sprintf("Data error: course with CRN %d is crosslisted with itself", course1.CRN), nil)
+					continue
+				}
+
+				// Check for instructor conflicts
+				if course1.InstructorID != course2.InstructorID && course1.InstructorID > 0 && course2.InstructorID > 0 {
+					conflictPair := ConflictPair{
+						Course1: course1,
+						Course2: course2,
+						Type:    "crosslisting-instructor",
+					}
+					crosslistingConflicts = append(crosslistingConflicts, conflictPair)
+				}
+
+				// Check for room conflicts (unless one or more is FSO, PSO, or AO)
+				if course1.RoomID != course2.RoomID && course1.RoomID > 0 && course2.RoomID > 0 {
+					if !scheduler.isRoomExemptMode(course1) && !scheduler.isRoomExemptMode(course2) {
+						conflictPair := ConflictPair{
+							Course1: course1,
+							Course2: course2,
+							Type:    "crosslisting-room",
+						}
+						crosslistingConflicts = append(crosslistingConflicts, conflictPair)
+					}
+				}
+
+				// Check for time conflicts (unless one or more is AO)
+				if !scheduler.timeSlotsMatch(course1.TimeSlot, course2.TimeSlot) {
+					if !scheduler.isTimeExemptMode(course1) && !scheduler.isTimeExemptMode(course2) {
+						conflictPair := ConflictPair{
+							Course1: course1,
+							Course2: course2,
+							Type:    "crosslisting-time",
+						}
+						crosslistingConflicts = append(crosslistingConflicts, conflictPair)
+					}
+				}
+			}
+		}
+	}
+
+	return crosslistingConflicts, nil
+}
+
+// isRoomExemptMode checks if a course is in a mode that exempts it from room conflicts (FSO, PSO, AO)
+func (scheduler *wmu_scheduler) isRoomExemptMode(course CourseDetail) bool {
+	return course.Mode == "FSO" || course.Mode == "PSO" || course.Mode == "AO"
+}
+
+// isTimeExemptMode checks if a course is in a mode that exempts it from time conflicts (AO)
+func (scheduler *wmu_scheduler) isTimeExemptMode(course CourseDetail) bool {
+	return course.Mode == "AO"
+}
+
+// timeSlotsMatch checks if two time slots are exactly the same
+func (scheduler *wmu_scheduler) timeSlotsMatch(slot1, slot2 *TimeSlot) bool {
+	if slot1 == nil || slot2 == nil {
+		return slot1 == slot2 // Both nil = match, one nil = no match
+	}
+
+	return slot1.StartTime == slot2.StartTime &&
+		slot1.EndTime == slot2.EndTime &&
+		slot1.Days == slot2.Days
 }
 
 // CrosslistingDisplayItem represents a cross-listing with enriched course and schedule data for display
@@ -4027,7 +4163,7 @@ func (scheduler *wmu_scheduler) RenderCrosslistingsPageGin(c *gin.Context) {
 		enriched.UpdatedAt = cl.UpdatedAt
 
 		// Get course details for CRN1
-		course1, err := scheduler.getCourseDetailsByCRN(cl.CRN1)
+		course1, err := scheduler.GetCourseDetailsByCRN(cl.CRN1)
 		if err != nil {
 			AppLogger.LogError(fmt.Sprintf("Failed to get course details for CRN %d", cl.CRN1), err)
 			continue
@@ -4035,7 +4171,7 @@ func (scheduler *wmu_scheduler) RenderCrosslistingsPageGin(c *gin.Context) {
 		enriched.Course1 = course1
 
 		// Get course details for CRN2
-		course2, err := scheduler.getCourseDetailsByCRN(cl.CRN2)
+		course2, err := scheduler.GetCourseDetailsByCRN(cl.CRN2)
 		if err != nil {
 			AppLogger.LogError(fmt.Sprintf("Failed to get course details for CRN %d", cl.CRN2), err)
 			continue
@@ -4070,44 +4206,6 @@ func (scheduler *wmu_scheduler) RenderCrosslistingsPageGin(c *gin.Context) {
 		"Error":         errorMsg,
 		"CSRFToken":     csrf.GetToken(c),
 	})
-}
-
-// getCourseDetailsByCRN retrieves detailed course information by CRN
-func (scheduler *wmu_scheduler) getCourseDetailsByCRN(crn int) (CourseDetail, error) {
-	var course CourseDetail
-
-	query := `
-		SELECT c.id, c.crn, c.section, c.schedule_id, p.prefix, c.course_number, c.title,
-			   COALESCE(c.instructor_id, -1) as instructor_id,
-			   COALESCE(c.timeslot_id, -1) as timeslot_id,
-			   COALESCE(c.room_id, -1) as room_id,
-			   c.mode
-		FROM courses c
-		JOIN schedules s ON c.schedule_id = s.id
-		JOIN prefixes p ON s.prefix_id = p.id
-		WHERE c.crn = ? AND c.status != 'Deleted'
-	`
-
-	err := scheduler.database.QueryRow(query, crn).Scan(
-		&course.ID, &course.CRN, &course.Section, &course.ScheduleID,
-		&course.Prefix, &course.CourseNumber, &course.Title,
-		&course.InstructorID, &course.TimeSlotID, &course.RoomID,
-		&course.Mode,
-	)
-
-	if err != nil {
-		return course, err
-	}
-
-	// Get time slot details if available
-	if course.TimeSlotID != -1 {
-		timeSlot, err := scheduler.GetTimeSlotById(course.TimeSlotID)
-		if err == nil && timeSlot != nil {
-			course.TimeSlot = timeSlot
-		}
-	}
-
-	return course, nil
 }
 
 // RenderAddCrosslistingPageGin renders the add crosslisting form page
@@ -4344,4 +4442,120 @@ type CourseForCrosslist struct {
 	Days         string `json:"days"`
 	StartTime    string `json:"start_time"`
 	EndTime      string `json:"end_time"`
+}
+
+// Prerequisites controller functions
+
+// RenderPrerequisitesPageGin renders the prerequisites page with all prerequisites
+func (scheduler *wmu_scheduler) RenderPrerequisitesPageGin(c *gin.Context) {
+	prerequisites, err := scheduler.GetAllPrerequisites()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{"Error": "Failed to load prerequisites"})
+		return
+	}
+
+	prefixes, err := scheduler.GetUniquePrefixes()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{"Error": "Failed to load prefixes"})
+		return
+	}
+
+	data := gin.H{
+		"Prerequisites": prerequisites,
+		"Prefixes":      prefixes,
+		"CSRFToken":     csrf.GetToken(c),
+	}
+
+	c.HTML(http.StatusOK, "prereqs.html", data)
+}
+
+// FilterPrerequisitesGin handles filtering prerequisites by course number
+func (scheduler *wmu_scheduler) FilterPrerequisitesGin(c *gin.Context) {
+	filterNumber := c.PostForm("filter_number")
+	
+	var prerequisites []Prerequisite
+	var err error
+	
+	if filterNumber == "" {
+		prerequisites, err = scheduler.GetAllPrerequisites()
+	} else {
+		prerequisites, err = scheduler.GetPrerequisitesByFilter(filterNumber)
+	}
+	
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{"Error": "Failed to filter prerequisites"})
+		return
+	}
+
+	prefixes, err := scheduler.GetUniquePrefixes()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{"Error": "Failed to load prefixes"})
+		return
+	}
+
+	data := gin.H{
+		"Prerequisites": prerequisites,
+		"Prefixes":      prefixes,
+		"FilterNumber":  filterNumber,
+		"CSRFToken":     csrf.GetToken(c),
+	}
+
+	c.HTML(http.StatusOK, "prereqs.html", data)
+}
+
+// AddPrerequisiteGin handles adding a new prerequisite
+func (scheduler *wmu_scheduler) AddPrerequisiteGin(c *gin.Context) {
+	predecessorPrefix := c.PostForm("predecessor_prefix")
+	predecessorNumber := c.PostForm("predecessor_number")
+	successorPrefix := c.PostForm("successor_prefix")
+	successorNumber := c.PostForm("successor_number")
+
+	err := scheduler.AddPrerequisite(predecessorPrefix, predecessorNumber, successorPrefix, successorNumber)
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{"Error": "Failed to add prerequisite"})
+		return
+	}
+
+	c.Redirect(http.StatusSeeOther, "/scheduler/prerequisites")
+}
+
+// UpdatePrerequisiteGin handles updating an existing prerequisite
+func (scheduler *wmu_scheduler) UpdatePrerequisiteGin(c *gin.Context) {
+	idStr := c.PostForm("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.HTML(http.StatusBadRequest, "error.html", gin.H{"Error": "Invalid prerequisite ID"})
+		return
+	}
+
+	predecessorPrefix := c.PostForm("predecessor_prefix")
+	predecessorNumber := c.PostForm("predecessor_number")
+	successorPrefix := c.PostForm("successor_prefix")
+	successorNumber := c.PostForm("successor_number")
+
+	err = scheduler.UpdatePrerequisite(id, predecessorPrefix, predecessorNumber, successorPrefix, successorNumber)
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{"Error": "Failed to update prerequisite"})
+		return
+	}
+
+	c.Redirect(http.StatusSeeOther, "/scheduler/prerequisites")
+}
+
+// DeletePrerequisiteGin handles deleting a prerequisite
+func (scheduler *wmu_scheduler) DeletePrerequisiteGin(c *gin.Context) {
+	idStr := c.PostForm("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.HTML(http.StatusBadRequest, "error.html", gin.H{"Error": "Invalid prerequisite ID"})
+		return
+	}
+
+	err = scheduler.DeletePrerequisite(id)
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{"Error": "Failed to delete prerequisite"})
+		return
+	}
+
+	c.Redirect(http.StatusSeeOther, "/scheduler/prerequisites")
 }

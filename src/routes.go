@@ -322,5 +322,22 @@ func (scheduler *wmu_scheduler) router() *gin.Engine {
 		scheduler.SetErrorMessageGin(c)
 	})
 
+	// Prerequisites routes
+	r.GET("/scheduler/prerequisites", func(c *gin.Context) {
+		scheduler.RenderPrerequisitesPageGin(c)
+	})
+	r.POST("/scheduler/prerequisites", func(c *gin.Context) {
+		scheduler.FilterPrerequisitesGin(c)
+	})
+	r.POST("/scheduler/add_prerequisite", func(c *gin.Context) {
+		scheduler.AddPrerequisiteGin(c)
+	})
+	r.POST("/scheduler/update_prerequisite", func(c *gin.Context) {
+		scheduler.UpdatePrerequisiteGin(c)
+	})
+	r.POST("/scheduler/delete_prerequisite", func(c *gin.Context) {
+		scheduler.DeletePrerequisiteGin(c)
+	})
+
 	return r
 }

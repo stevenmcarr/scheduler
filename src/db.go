@@ -371,6 +371,15 @@ type Course struct {
 	Comment      string // New field for comments
 }
 
+// Prerequisite represents a course prerequisite relationship
+type Prerequisite struct {
+	ID                 int
+	PredecessorPrefix  string
+	PredecessorNumber  string
+	SuccessorPrefix    string
+	SuccessorNumber    string
+}
+
 func (scheduler *wmu_scheduler) GetActiveCoursesForSchedule(scheduleID int) ([]Course, error) {
 	rows, err := scheduler.database.Query(`
 		SELECT c.id, c.crn, p.prefix, c.section, c.course_number, c.title, 
@@ -691,6 +700,32 @@ func (scheduler *wmu_scheduler) GetAllInstructors() ([]Instructor, error) {
 	}
 
 	return instructors, nil
+}
+
+// GetInstructorByID retrieves a single instructor by ID from the database
+func (scheduler *wmu_scheduler) GetInstructorByID(instructorID int) (*Instructor, error) {
+	query := `
+		SELECT i.id, i.last_name, i.first_name, i.department_id, i.status 
+		FROM instructors i 
+		WHERE i.id = ?`
+
+	row := scheduler.database.QueryRow(query, instructorID)
+
+	var instructor Instructor
+	var departmentID int
+	err := row.Scan(&instructor.ID, &instructor.LastName, &instructor.FirstName, &departmentID, &instructor.Status)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("instructor with ID %d not found", instructorID)
+		}
+		return nil, fmt.Errorf("failed to scan instructor: %v", err)
+	}
+
+	// Convert department_id to string for compatibility with existing Instructor struct
+	instructor.Department = fmt.Sprintf("%d", departmentID)
+
+	instructor.Status = NormalizeStatus(instructor.Status) // Normalize status
+	return &instructor, nil
 }
 
 type Department struct {
@@ -1533,6 +1568,44 @@ func (scheduler *wmu_scheduler) GetAllCrosslistingsForCRN(crn int) ([]Crosslisti
 	return crosslistings, nil
 }
 
+// getCourseDetailsByCRN retrieves detailed course information by CRN
+func (scheduler *wmu_scheduler) GetCourseDetailsByCRN(crn int) (CourseDetail, error) {
+	var course CourseDetail
+
+	query := `
+		SELECT c.id, c.crn, c.section, c.schedule_id, p.prefix, c.course_number, c.title,
+			   COALESCE(c.instructor_id, -1) as instructor_id,
+			   COALESCE(c.timeslot_id, -1) as timeslot_id,
+			   COALESCE(c.room_id, -1) as room_id,
+			   c.mode
+		FROM courses c
+		JOIN schedules s ON c.schedule_id = s.id
+		JOIN prefixes p ON c.prefix_id = p.id
+		WHERE c.crn = ? AND c.status != 'Deleted'
+	`
+
+	err := scheduler.database.QueryRow(query, crn).Scan(
+		&course.ID, &course.CRN, &course.Section, &course.ScheduleID,
+		&course.Prefix, &course.CourseNumber, &course.Title,
+		&course.InstructorID, &course.TimeSlotID, &course.RoomID,
+		&course.Mode,
+	)
+
+	if err != nil {
+		return course, err
+	}
+
+	// Get time slot details if available
+	if course.TimeSlotID != -1 {
+		timeSlot, err := scheduler.GetTimeSlotById(course.TimeSlotID)
+		if err == nil && timeSlot != nil {
+			course.TimeSlot = timeSlot
+		}
+	}
+
+	return course, nil
+}
+
 // DeleteCrosslisting removes a cross-listing by ID
 func (scheduler *wmu_scheduler) DeleteCrosslisting(crosslistingID int) error {
 	_, err := scheduler.database.Exec("DELETE FROM crosslistings WHERE id = ?", crosslistingID)
@@ -1579,4 +1652,102 @@ func (scheduler *wmu_scheduler) AreCoursesCrosslisted(crn1, crn2 int) (bool, err
 		return false, err
 	}
 	return count > 0, nil
+}
+
+// Prerequisite database functions
+
+// GetAllPrerequisites retrieves all prerequisites from the database
+func (scheduler *wmu_scheduler) GetAllPrerequisites() ([]Prerequisite, error) {
+	rows, err := scheduler.database.Query(`
+		SELECT id, predecessor_prefix, predecessor_number, successor_prefix, successor_number
+		FROM prerequisites
+		ORDER BY successor_prefix, successor_number, predecessor_prefix, predecessor_number
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var prerequisites []Prerequisite
+	for rows.Next() {
+		var prereq Prerequisite
+		if err := rows.Scan(&prereq.ID, &prereq.PredecessorPrefix, &prereq.PredecessorNumber, 
+			&prereq.SuccessorPrefix, &prereq.SuccessorNumber); err != nil {
+			return nil, err
+		}
+		prerequisites = append(prerequisites, prereq)
+	}
+	return prerequisites, nil
+}
+
+// GetPrerequisitesByFilter retrieves prerequisites filtered by course number
+func (scheduler *wmu_scheduler) GetPrerequisitesByFilter(filterNumber string) ([]Prerequisite, error) {
+	query := `
+		SELECT id, predecessor_prefix, predecessor_number, successor_prefix, successor_number
+		FROM prerequisites
+		WHERE predecessor_number LIKE ? OR successor_number LIKE ?
+		ORDER BY successor_prefix, successor_number, predecessor_prefix, predecessor_number
+	`
+	
+	filterPattern := "%" + filterNumber + "%"
+	rows, err := scheduler.database.Query(query, filterPattern, filterPattern)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var prerequisites []Prerequisite
+	for rows.Next() {
+		var prereq Prerequisite
+		if err := rows.Scan(&prereq.ID, &prereq.PredecessorPrefix, &prereq.PredecessorNumber, 
+			&prereq.SuccessorPrefix, &prereq.SuccessorNumber); err != nil {
+			return nil, err
+		}
+		prerequisites = append(prerequisites, prereq)
+	}
+	return prerequisites, nil
+}
+
+// AddPrerequisite adds a new prerequisite to the database
+func (scheduler *wmu_scheduler) AddPrerequisite(predecessorPrefix, predecessorNumber, successorPrefix, successorNumber string) error {
+	_, err := scheduler.database.Exec(`
+		INSERT INTO prerequisites (predecessor_prefix, predecessor_number, successor_prefix, successor_number)
+		VALUES (?, ?, ?, ?)
+	`, predecessorPrefix, predecessorNumber, successorPrefix, successorNumber)
+	return err
+}
+
+// UpdatePrerequisite updates an existing prerequisite in the database
+func (scheduler *wmu_scheduler) UpdatePrerequisite(id int, predecessorPrefix, predecessorNumber, successorPrefix, successorNumber string) error {
+	_, err := scheduler.database.Exec(`
+		UPDATE prerequisites 
+		SET predecessor_prefix = ?, predecessor_number = ?, successor_prefix = ?, successor_number = ?
+		WHERE id = ?
+	`, predecessorPrefix, predecessorNumber, successorPrefix, successorNumber, id)
+	return err
+}
+
+// DeletePrerequisite removes a prerequisite from the database
+func (scheduler *wmu_scheduler) DeletePrerequisite(id int) error {
+	_, err := scheduler.database.Exec("DELETE FROM prerequisites WHERE id = ?", id)
+	return err
+}
+
+// GetUniquePrefixes retrieves all unique course prefixes for dropdown menus
+func (scheduler *wmu_scheduler) GetUniquePrefixes() ([]string, error) {
+	rows, err := scheduler.database.Query("SELECT DISTINCT prefix FROM prefixes ORDER BY prefix")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var prefixes []string
+	for rows.Next() {
+		var prefix string
+		if err := rows.Scan(&prefix); err != nil {
+			return nil, err
+		}
+		prefixes = append(prefixes, prefix)
+	}
+	return prefixes, nil
 }

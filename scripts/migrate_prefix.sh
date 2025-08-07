@@ -26,7 +26,7 @@ fi
 mkdir -p scripts/migrations
 
 # Check if migration file exists
-MIGRATION_FILE="sql/migrate_prefix_to_courses.sql"
+MIGRATION_FILE="sql/migrate_prefix_id_to_courses.sql"
 if [ ! -f "$MIGRATION_FILE" ]; then
     echo "❌ Error: Migration file not found: $MIGRATION_FILE"
     exit 1
