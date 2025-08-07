@@ -373,11 +373,16 @@ type Course struct {
 
 // Prerequisite represents a course prerequisite relationship
 type Prerequisite struct {
-	ID                 int
-	PredecessorPrefix  string
-	PredecessorNumber  string
-	SuccessorPrefix    string
-	SuccessorNumber    string
+	ID            int
+	PredPrefixID  int
+	PredCourseNum string
+	SuccPrefixID  int
+	SuccCourseNum string
+	// Display fields (populated from JOINs)
+	PredecessorPrefix string
+	PredecessorNumber string
+	SuccessorPrefix   string
+	SuccessorNumber   string
 }
 
 func (scheduler *wmu_scheduler) GetActiveCoursesForSchedule(scheduleID int) ([]Course, error) {
@@ -1659,9 +1664,13 @@ func (scheduler *wmu_scheduler) AreCoursesCrosslisted(crn1, crn2 int) (bool, err
 // GetAllPrerequisites retrieves all prerequisites from the database
 func (scheduler *wmu_scheduler) GetAllPrerequisites() ([]Prerequisite, error) {
 	rows, err := scheduler.database.Query(`
-		SELECT id, predecessor_prefix, predecessor_number, successor_prefix, successor_number
-		FROM prerequisites
-		ORDER BY successor_prefix, successor_number, predecessor_prefix, predecessor_number
+		SELECT p.id, p.pred_prefix_id, p.pred_course_num, p.succ_prefix_id, p.succ_course_num,
+		       pred_pref.prefix as pred_prefix, p.pred_course_num as pred_number,
+		       succ_pref.prefix as succ_prefix, p.succ_course_num as succ_number
+		FROM prerequisites p
+		JOIN prefixes pred_pref ON p.pred_prefix_id = pred_pref.id
+		JOIN prefixes succ_pref ON p.succ_prefix_id = succ_pref.id
+		ORDER BY succ_pref.prefix, p.succ_course_num, pred_pref.prefix, p.pred_course_num
 	`)
 	if err != nil {
 		return nil, err
@@ -1671,7 +1680,9 @@ func (scheduler *wmu_scheduler) GetAllPrerequisites() ([]Prerequisite, error) {
 	var prerequisites []Prerequisite
 	for rows.Next() {
 		var prereq Prerequisite
-		if err := rows.Scan(&prereq.ID, &prereq.PredecessorPrefix, &prereq.PredecessorNumber, 
+		if err := rows.Scan(&prereq.ID, &prereq.PredPrefixID, &prereq.PredCourseNum,
+			&prereq.SuccPrefixID, &prereq.SuccCourseNum,
+			&prereq.PredecessorPrefix, &prereq.PredecessorNumber,
 			&prereq.SuccessorPrefix, &prereq.SuccessorNumber); err != nil {
 			return nil, err
 		}
@@ -1683,12 +1694,16 @@ func (scheduler *wmu_scheduler) GetAllPrerequisites() ([]Prerequisite, error) {
 // GetPrerequisitesByFilter retrieves prerequisites filtered by course number
 func (scheduler *wmu_scheduler) GetPrerequisitesByFilter(filterNumber string) ([]Prerequisite, error) {
 	query := `
-		SELECT id, predecessor_prefix, predecessor_number, successor_prefix, successor_number
-		FROM prerequisites
-		WHERE predecessor_number LIKE ? OR successor_number LIKE ?
-		ORDER BY successor_prefix, successor_number, predecessor_prefix, predecessor_number
+		SELECT p.id, p.pred_prefix_id, p.pred_course_num, p.succ_prefix_id, p.succ_course_num,
+		       pred_pref.prefix as pred_prefix, p.pred_course_num as pred_number,
+		       succ_pref.prefix as succ_prefix, p.succ_course_num as succ_number
+		FROM prerequisites p
+		JOIN prefixes pred_pref ON p.pred_prefix_id = pred_pref.id
+		JOIN prefixes succ_pref ON p.succ_prefix_id = succ_pref.id
+		WHERE p.pred_course_num LIKE ? OR p.succ_course_num LIKE ?
+		ORDER BY succ_pref.prefix, p.succ_course_num, pred_pref.prefix, p.pred_course_num
 	`
-	
+
 	filterPattern := "%" + filterNumber + "%"
 	rows, err := scheduler.database.Query(query, filterPattern, filterPattern)
 	if err != nil {
@@ -1699,7 +1714,9 @@ func (scheduler *wmu_scheduler) GetPrerequisitesByFilter(filterNumber string) ([
 	var prerequisites []Prerequisite
 	for rows.Next() {
 		var prereq Prerequisite
-		if err := rows.Scan(&prereq.ID, &prereq.PredecessorPrefix, &prereq.PredecessorNumber, 
+		if err := rows.Scan(&prereq.ID, &prereq.PredPrefixID, &prereq.PredCourseNum,
+			&prereq.SuccPrefixID, &prereq.SuccCourseNum,
+			&prereq.PredecessorPrefix, &prereq.PredecessorNumber,
 			&prereq.SuccessorPrefix, &prereq.SuccessorNumber); err != nil {
 			return nil, err
 		}
@@ -1710,20 +1727,42 @@ func (scheduler *wmu_scheduler) GetPrerequisitesByFilter(filterNumber string) ([
 
 // AddPrerequisite adds a new prerequisite to the database
 func (scheduler *wmu_scheduler) AddPrerequisite(predecessorPrefix, predecessorNumber, successorPrefix, successorNumber string) error {
-	_, err := scheduler.database.Exec(`
-		INSERT INTO prerequisites (predecessor_prefix, predecessor_number, successor_prefix, successor_number)
+	// Get prefix IDs
+	predPrefixID, err := scheduler.GetPrefixID(predecessorPrefix)
+	if err != nil {
+		return fmt.Errorf("failed to get predecessor prefix ID: %v", err)
+	}
+
+	succPrefixID, err := scheduler.GetPrefixID(successorPrefix)
+	if err != nil {
+		return fmt.Errorf("failed to get successor prefix ID: %v", err)
+	}
+
+	_, err = scheduler.database.Exec(`
+		INSERT INTO prerequisites (pred_prefix_id, pred_course_num, succ_prefix_id, succ_course_num)
 		VALUES (?, ?, ?, ?)
-	`, predecessorPrefix, predecessorNumber, successorPrefix, successorNumber)
+	`, predPrefixID, predecessorNumber, succPrefixID, successorNumber)
 	return err
 }
 
 // UpdatePrerequisite updates an existing prerequisite in the database
 func (scheduler *wmu_scheduler) UpdatePrerequisite(id int, predecessorPrefix, predecessorNumber, successorPrefix, successorNumber string) error {
-	_, err := scheduler.database.Exec(`
+	// Get prefix IDs
+	predPrefixID, err := scheduler.GetPrefixID(predecessorPrefix)
+	if err != nil {
+		return fmt.Errorf("failed to get predecessor prefix ID: %v", err)
+	}
+
+	succPrefixID, err := scheduler.GetPrefixID(successorPrefix)
+	if err != nil {
+		return fmt.Errorf("failed to get successor prefix ID: %v", err)
+	}
+
+	_, err = scheduler.database.Exec(`
 		UPDATE prerequisites 
-		SET predecessor_prefix = ?, predecessor_number = ?, successor_prefix = ?, successor_number = ?
+		SET pred_prefix_id = ?, pred_course_num = ?, succ_prefix_id = ?, succ_course_num = ?
 		WHERE id = ?
-	`, predecessorPrefix, predecessorNumber, successorPrefix, successorNumber, id)
+	`, predPrefixID, predecessorNumber, succPrefixID, successorNumber, id)
 	return err
 }
 
@@ -1735,9 +1774,15 @@ func (scheduler *wmu_scheduler) DeletePrerequisite(id int) error {
 
 // GetUniquePrefixes retrieves all unique course prefixes for dropdown menus
 func (scheduler *wmu_scheduler) GetUniquePrefixes() ([]string, error) {
+	// First try the prefixes table
 	rows, err := scheduler.database.Query("SELECT DISTINCT prefix FROM prefixes ORDER BY prefix")
 	if err != nil {
-		return nil, err
+		// If prefixes table doesn't exist, try getting from courses table
+		rows, err = scheduler.database.Query("SELECT DISTINCT prefix FROM courses ORDER BY prefix")
+		if err != nil {
+			// If both fail, return some common prefixes as fallback
+			return []string{"MATH", "ENG", "CS", "PHYS", "CHEM", "HIST", "BIO", "PSYC"}, nil
+		}
 	}
 	defer rows.Close()
 
@@ -1749,5 +1794,11 @@ func (scheduler *wmu_scheduler) GetUniquePrefixes() ([]string, error) {
 		}
 		prefixes = append(prefixes, prefix)
 	}
+
+	// If no prefixes found, return some common ones
+	if len(prefixes) == 0 {
+		return []string{"MATH", "ENG", "CS", "PHYS", "CHEM", "HIST", "BIO", "PSYC"}, nil
+	}
+
 	return prefixes, nil
 }

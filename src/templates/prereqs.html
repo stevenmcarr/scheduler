@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Prerequisites - WMU Course Scheduler</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+        .content { margin: 24px; }
+        
+        .page-header {
+            margin-bottom: 20px;
+        }
+        
+        .page-header h1 {
+            margin: 0;
+            color: #8B4513;
+        }
+        
+        /* Filter section */
+        .filter-section {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            border-left: 4px solid #8B4513;
+            margin-bottom: 20px;
+        }
+        
+        .filter-form {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .filter-form label {
+            font-weight: bold;
+        }
+        
+        .filter-form input[type="text"] {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        /* Add new prerequisite section */
+        .add-section {
+            background-color: #e9f7ef;
+            padding: 15px;
+            border-radius: 4px;
+            border-left: 4px solid #28a745;
+            margin-bottom: 20px;
+        }
+        
+        .add-form {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 1fr auto;
+            gap: 10px;
+            align-items: end;
+        }
+        
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .form-group label {
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #333;
+        }
+        
+        /* Table container with scrollbars */
+        .table-container {
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            overflow: auto;
+            max-height: 500px;
+            margin-bottom: 24px;
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin: 0;
+        }
+        
+        th, td { 
+            border: 1px solid #ccc; 
+            padding: 8px; 
+            text-align: left;
+            vertical-align: top;
+        }
+        
+        th { 
+            background-color: #8B4513;
+            color: white;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            border-bottom: 2px solid #654321;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        
+        /* Zebra striping for better readability */
+        tbody tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        
+        tbody tr:hover {
+            background-color: #e8f4f8;
+        }
+        
+        /* Input and select styling */
+        input[type="text"], input[type="number"], select {
+            width: 100%;
+            padding: 4px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 12px;
+            box-sizing: border-box;
+        }
+        
+        /* Button styling */
+        button { 
+            padding: 8px 16px; 
+            font-size: 12px; 
+            cursor: pointer;
+            border: 1px solid #8B4513;
+            background-color: #8B4513;
+            color: white;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+        }
+        
+        button:hover {
+            background-color: #654321;
+        }
+        
+        .btn-danger {
+            background-color: #dc3545;
+            border-color: #dc3545;
+        }
+        
+        .btn-danger:hover {
+            background-color: #c82333;
+        }
+        
+        .btn-success {
+            background-color: #28a745;
+            border-color: #28a745;
+        }
+        
+        .btn-success:hover {
+            background-color: #218838;
+        }
+        
+        .action-buttons {
+            display: flex;
+            gap: 5px;
+        }
+        
+        .button-row { 
+            display: flex; 
+            gap: 12px; 
+            justify-content: flex-end; 
+            margin-top: 20px;
+        }
+        
+        /* Edit mode styling */
+        .edit-mode {
+            background-color: #fff3cd !important;
+        }
+        
+        .no-prerequisites {
+            text-align: center;
+            padding: 40px;
+            background-color: #f8f9fa;
+            color: #6c757d;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+        
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .add-form {
+                grid-template-columns: 1fr;
+                gap: 15px;
+            }
+            
+            .filter-form {
+                flex-direction: column;
+                align-items: stretch;
+            }
+        }
+    </style>
+</head>
+<body>
+    {{template "navbar" .}}
+    <div class="content">
+        <div class="page-header">
+            <h1>Prerequisites Management</h1>
+        </div>
+        
+        <!-- Filter Section -->
+        <div class="filter-section">
+            <form class="filter-form" method="POST" action="/scheduler/prerequisites">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                <label for="filter_number">Filter by Course Number:</label>
+                <input type="text" id="filter_number" name="filter_number" value="{{.FilterNumber}}" placeholder="Enter course number (e.g., 101, 2000, etc.)">
+                <button type="submit">Filter</button>
+                <a href="/scheduler/prerequisites"><button type="button">Clear Filter</button></a>
+            </form>
+        </div>
+        
+        <!-- Add New Prerequisite Section -->
+        <div class="add-section">
+            <h3>Add New Prerequisite</h3>
+            <form class="add-form" method="POST" action="/scheduler/add_prerequisite">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                <div class="form-group">
+                    <label for="predecessor_prefix">Prerequisite Prefix:</label>
+                    <select id="predecessor_prefix" name="predecessor_prefix" required>
+                        <option value="">Select Prefix</option>
+                        {{range .Prefixes}}
+                        <option value="{{.}}">{{.}}</option>
+                        {{end}}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="predecessor_number">Prerequisite Number:</label>
+                    <input type="text" id="predecessor_number" name="predecessor_number" placeholder="e.g., 101" required>
+                </div>
+                <div class="form-group">
+                    <label for="successor_prefix">Course Prefix:</label>
+                    <select id="successor_prefix" name="successor_prefix" required>
+                        <option value="">Select Prefix</option>
+                        {{range .Prefixes}}
+                        <option value="{{.}}">{{.}}</option>
+                        {{end}}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="successor_number">Course Number:</label>
+                    <input type="text" id="successor_number" name="successor_number" placeholder="e.g., 201" required>
+                </div>
+                <div class="form-group">
+                    <button type="submit" class="btn-success">Add Prerequisite</button>
+                </div>
+            </form>
+        </div>
+        
+        <!-- Prerequisites Table -->
+        {{if .Prerequisites}}
+        <div class="table-container">
+            <table id="prerequisitesTable">
+                <thead>
+                    <tr>
+                        <th>Prerequisite Course</th>
+                        <th>Required For Course</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Prerequisites}}
+                    <tr data-id="{{.ID}}">
+                        <td>
+                            <span class="view-mode">{{.PredecessorPrefix}} {{.PredecessorNumber}}</span>
+                            <div class="edit-mode" style="display: none;">
+                                <select name="predecessor_prefix">
+                                    <option value="">Select Prefix</option>
+                                    {{range $.Prefixes}}
+                                    <option value="{{.}}" {{if eq . $.PredecessorPrefix}}selected{{end}}>{{.}}</option>
+                                    {{end}}
+                                </select>
+                                <input type="text" name="predecessor_number" value="{{.PredecessorNumber}}" placeholder="Course Number">
+                            </div>
+                        </td>
+                        <td>
+                            <span class="view-mode">{{.SuccessorPrefix}} {{.SuccessorNumber}}</span>
+                            <div class="edit-mode" style="display: none;">
+                                <select name="successor_prefix">
+                                    <option value="">Select Prefix</option>
+                                    {{range $.Prefixes}}
+                                    <option value="{{.}}" {{if eq . $.SuccessorPrefix}}selected{{end}}>{{.}}</option>
+                                    {{end}}
+                                </select>
+                                <input type="text" name="successor_number" value="{{.SuccessorNumber}}" placeholder="Course Number">
+                            </div>
+                        </td>
+                        <td>
+                            <div class="action-buttons">
+                                <button type="button" class="edit-btn" onclick="editPrerequisite({{.ID}})">Edit</button>
+                                <button type="button" class="save-btn btn-success" onclick="savePrerequisite({{.ID}})" style="display: none;">Save</button>
+                                <button type="button" class="cancel-btn" onclick="cancelEdit({{.ID}})" style="display: none;">Cancel</button>
+                                <form method="POST" action="/scheduler/delete_prerequisite" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete this prerequisite?')">
+                                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                                    <input type="hidden" name="id" value="{{.ID}}">
+                                    <button type="submit" class="btn-danger">Delete</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+        {{else}}
+        <div class="no-prerequisites">
+            {{if .FilterNumber}}
+            No prerequisites found matching course number "{{.FilterNumber}}".
+            {{else}}
+            No prerequisites found. Add your first prerequisite above.
+            {{end}}
+        </div>
+        {{end}}
+        
+        <div class="button-row">
+            <button type="button" onclick="window.location.href='/scheduler'">Return to Home</button>
+            <button type="button" onclick="window.location.href='/scheduler/courses'">View Courses</button>
+        </div>
+    </div>
+
+    <script>
+        let originalData = {};
+
+        function editPrerequisite(id) {
+            const row = document.querySelector(`tr[data-id="${id}"]`);
+            const viewModes = row.querySelectorAll('.view-mode');
+            const editModes = row.querySelectorAll('.edit-mode');
+            const editBtn = row.querySelector('.edit-btn');
+            const saveBtn = row.querySelector('.save-btn');
+            const cancelBtn = row.querySelector('.cancel-btn');
+
+            // Store original data
+            originalData[id] = {
+                predecessorPrefix: row.querySelector('select[name="predecessor_prefix"]').value,
+                predecessorNumber: row.querySelector('input[name="predecessor_number"]').value,
+                successorPrefix: row.querySelector('select[name="successor_prefix"]').value,
+                successorNumber: row.querySelector('input[name="successor_number"]').value
+            };
+
+            // Toggle modes
+            viewModes.forEach(el => el.style.display = 'none');
+            editModes.forEach(el => el.style.display = 'block');
+            editBtn.style.display = 'none';
+            saveBtn.style.display = 'inline-block';
+            cancelBtn.style.display = 'inline-block';
+
+            row.classList.add('edit-mode');
+        }
+
+        function cancelEdit(id) {
+            const row = document.querySelector(`tr[data-id="${id}"]`);
+            const viewModes = row.querySelectorAll('.view-mode');
+            const editModes = row.querySelectorAll('.edit-mode');
+            const editBtn = row.querySelector('.edit-btn');
+            const saveBtn = row.querySelector('.save-btn');
+            const cancelBtn = row.querySelector('.cancel-btn');
+
+            // Restore original data
+            if (originalData[id]) {
+                row.querySelector('select[name="predecessor_prefix"]').value = originalData[id].predecessorPrefix;
+                row.querySelector('input[name="predecessor_number"]').value = originalData[id].predecessorNumber;
+                row.querySelector('select[name="successor_prefix"]').value = originalData[id].successorPrefix;
+                row.querySelector('input[name="successor_number"]').value = originalData[id].successorNumber;
+            }
+
+            // Toggle modes
+            viewModes.forEach(el => el.style.display = 'inline');
+            editModes.forEach(el => el.style.display = 'none');
+            editBtn.style.display = 'inline-block';
+            saveBtn.style.display = 'none';
+            cancelBtn.style.display = 'none';
+
+            row.classList.remove('edit-mode');
+        }
+
+        function savePrerequisite(id) {
+            const row = document.querySelector(`tr[data-id="${id}"]`);
+            const predecessorPrefix = row.querySelector('select[name="predecessor_prefix"]').value;
+            const predecessorNumber = row.querySelector('input[name="predecessor_number"]').value;
+            const successorPrefix = row.querySelector('select[name="successor_prefix"]').value;
+            const successorNumber = row.querySelector('input[name="successor_number"]').value;
+
+            if (!predecessorPrefix || !predecessorNumber || !successorPrefix || !successorNumber) {
+                alert('All fields are required');
+                return;
+            }
+
+            // Create and submit form
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = '/scheduler/update_prerequisite';
+
+            const fields = [
+                { name: 'csrf_token', value: '{{.CSRFToken}}' },
+                { name: 'id', value: id },
+                { name: 'predecessor_prefix', value: predecessorPrefix },
+                { name: 'predecessor_number', value: predecessorNumber },
+                { name: 'successor_prefix', value: successorPrefix },
+                { name: 'successor_number', value: successorNumber }
+            ];
+
+            fields.forEach(field => {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = field.name;
+                input.value = field.value;
+                form.appendChild(input);
+            });
+
+            document.body.appendChild(form);
+            form.submit();
+        }
+    </script>
+</body>
+</html>

@@ -3642,6 +3642,7 @@ type CourseDetail struct {
 	TimeSlotID          int
 	RoomID              int
 	Mode                string
+	Lab                 bool
 	TimeSlot            *TimeSlot
 }
 
@@ -3649,6 +3650,7 @@ type ConflictReport struct {
 	InstructorConflicts   []ConflictPair
 	RoomConflicts         []ConflictPair
 	CrosslistingConflicts []ConflictPair
+	CourseConflicts       []ConflictPair
 	Schedule1ID           int
 	Schedule2ID           int
 }
@@ -3866,10 +3868,19 @@ func (scheduler *wmu_scheduler) DetectConflictsBetweenSchedules(schedule1ID, sch
 		// Continue without crosslisting conflicts rather than failing completely
 	}
 
+	// Detect course conflicts based on course number ranges and overlapping times
+	var courseConflicts []ConflictPair
+	courseConflicts, err = scheduler.detectCourseConflicts(courses1, courses2)
+	if err != nil {
+		AppLogger.LogError("Failed to detect course conflicts", err)
+		// Continue without course conflicts rather than failing completely
+	}
+
 	return &ConflictReport{
 		InstructorConflicts:   instructorConflicts,
 		RoomConflicts:         roomConflicts,
 		CrosslistingConflicts: crosslistingConflicts,
+		CourseConflicts:       courseConflicts,
 		Schedule1ID:           schedule1ID,
 		Schedule2ID:           schedule2ID,
 	}, nil
@@ -3921,6 +3932,7 @@ func (scheduler *wmu_scheduler) getCoursesWithDetails(scheduleID int) ([]CourseD
 			TimeSlotID:          course.TimeSlotID,
 			RoomID:              course.RoomID,
 			Mode:                course.Mode,
+			Lab:                 course.Lab,
 			TimeSlot:            timeslot,
 		})
 
@@ -4081,6 +4093,229 @@ func (scheduler *wmu_scheduler) timeSlotsMatch(slot1, slot2 *TimeSlot) bool {
 	return slot1.StartTime == slot2.StartTime &&
 		slot1.EndTime == slot2.EndTime &&
 		slot1.Days == slot2.Days
+}
+
+// detectCourseConflicts detects conflicts between courses with the same prefix based on course number ranges
+func (scheduler *wmu_scheduler) detectCourseConflicts(courses1, courses2 []CourseDetail) ([]ConflictPair, error) {
+	var courseConflicts []ConflictPair
+
+	// Create a map to track unique courses by CRN to avoid duplicates
+	courseMap := make(map[int]CourseDetail)
+
+	// Add all courses to the map, preferring courses from courses1 if duplicates exist
+	for _, course := range courses1 {
+		courseMap[course.CRN] = course
+	}
+	for _, course := range courses2 {
+		if _, exists := courseMap[course.CRN]; !exists {
+			courseMap[course.CRN] = course
+		}
+	}
+
+	// Convert map back to slice for processing
+	allCourses := make([]CourseDetail, 0, len(courseMap))
+	for _, course := range courseMap {
+		allCourses = append(allCourses, course)
+	}
+
+	// Check all unique course pairs for course conflicts
+	for i, course1 := range allCourses {
+		for j, course2 := range allCourses {
+			if i >= j { // Avoid checking the same pair twice and avoid self-comparison
+				continue
+			}
+
+			// Only check courses with the same prefix
+			if course1.Prefix != course2.Prefix {
+				continue
+			}
+
+			// Check if time slots overlap
+			if !scheduler.timeSlotsOverlap(course1.TimeSlot, course2.TimeSlot) {
+				continue
+			}
+
+			// Mode exception: Courses with same prefix and course number but different modes don't conflict
+			if course1.Prefix == course2.Prefix && course1.CourseNumber == course2.CourseNumber &&
+				course1.Mode != course2.Mode {
+				continue
+			}
+
+			// Lab-specific logic: Labs don't conflict with any other courses (including other labs)
+			// EXCEPT: Labs may not be offered at the same time as the same course number that is not a lab
+			if course1.Lab || course2.Lab {
+				// If one is a lab and the other is not a lab AND they have the same course number, it's a conflict
+				if course1.Lab != course2.Lab && course1.CourseNumber == course2.CourseNumber {
+					conflictPair := ConflictPair{
+						Course1: course1,
+						Course2: course2,
+						Type:    "course",
+					}
+					courseConflicts = append(courseConflicts, conflictPair)
+				}
+				// If both are labs, or they have different course numbers, no conflict - skip to next pair
+				continue
+			}
+
+			// For non-lab courses, check if courses are in the same course number range and would conflict
+			if scheduler.isInSameCourseRange(course1.CourseNumber, course2.CourseNumber) {
+				// Check for exceptions: crosslisted courses or prerequisite chain
+				isException, err := scheduler.isCourseConflictException(course1, course2)
+				if err != nil {
+					AppLogger.LogError(fmt.Sprintf("Error checking course conflict exception for %s %s and %s %s",
+						course1.Prefix, course1.CourseNumber, course2.Prefix, course2.CourseNumber), err)
+					continue
+				}
+
+				if !isException {
+					conflictPair := ConflictPair{
+						Course1: course1,
+						Course2: course2,
+						Type:    "course",
+					}
+					courseConflicts = append(courseConflicts, conflictPair)
+				}
+			}
+		}
+	}
+
+	return courseConflicts, nil
+}
+
+// isInSameCourseRange checks if two course numbers are in the same range (1000-1999, 2000-2999, etc.)
+func (scheduler *wmu_scheduler) isInSameCourseRange(courseNum1, courseNum2 string) bool {
+	num1 := scheduler.extractNumericCourseNumber(courseNum1)
+	num2 := scheduler.extractNumericCourseNumber(courseNum2)
+
+	if num1 == -1 || num2 == -1 {
+		return false // If we can't parse the course numbers, assume no conflict
+	}
+
+	// Define the ranges
+	ranges := [][2]int{
+		{1000, 1999},
+		{2000, 2999},
+		{3000, 3999},
+		{5000, 5999},
+		{6000, 6999},
+	}
+
+	// Check if both course numbers fall in the same range
+	for _, r := range ranges {
+		if num1 >= r[0] && num1 <= r[1] && num2 >= r[0] && num2 <= r[1] {
+			return true
+		}
+	}
+
+	return false
+}
+
+// extractNumericCourseNumber extracts the numeric part from a course number string
+// Handles formats like "2150", "2150H", "2150W", etc.
+func (scheduler *wmu_scheduler) extractNumericCourseNumber(courseNum string) int {
+	// Remove any trailing letters (like H for honors, W for writing intensive, etc.)
+	re := regexp.MustCompile(`^(\d+)`)
+	matches := re.FindStringSubmatch(courseNum)
+
+	if len(matches) < 2 {
+		return -1 // Invalid course number format
+	}
+
+	num, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return -1
+	}
+
+	return num
+}
+
+// isCourseConflictException checks if two courses are exempt from course conflicts
+// due to being crosslisted or appearing on the same prerequisite chain
+func (scheduler *wmu_scheduler) isCourseConflictException(course1, course2 CourseDetail) (bool, error) {
+	// Check if courses are crosslisted
+	crosslisted, err := scheduler.AreCoursesCrosslisted(course1.CRN, course2.CRN)
+	if err != nil {
+		return false, fmt.Errorf("error checking crosslisting: %v", err)
+	}
+	if crosslisted {
+		return true, nil
+	}
+
+	// Check if courses are on the same prerequisite chain
+	onSameChain, err := scheduler.areCoursesOnSamePrerequisiteChain(course1.Prefix, course1.CourseNumber, course2.Prefix, course2.CourseNumber)
+	if err != nil {
+		return false, fmt.Errorf("error checking prerequisite chain: %v", err)
+	}
+	if onSameChain {
+		return true, nil
+	}
+
+	return false, nil
+}
+
+// areCoursesOnSamePrerequisiteChain checks if two courses appear on the same prerequisite chain
+func (scheduler *wmu_scheduler) areCoursesOnSamePrerequisiteChain(prefix1, courseNum1, prefix2, courseNum2 string) (bool, error) {
+	// Get all prerequisites from the database
+	prerequisites, err := scheduler.GetAllPrerequisites()
+	if err != nil {
+		return false, fmt.Errorf("failed to get prerequisites: %v", err)
+	}
+
+	// Build a graph of prerequisite relationships
+	prereqGraph := make(map[string][]string) // course -> list of prerequisite courses
+	succGraph := make(map[string][]string)   // course -> list of successor courses
+
+	for _, prereq := range prerequisites {
+		predCourse := prereq.PredecessorPrefix + " " + prereq.PredecessorNumber
+		succCourse := prereq.SuccessorPrefix + " " + prereq.SuccessorNumber
+
+		prereqGraph[succCourse] = append(prereqGraph[succCourse], predCourse)
+		succGraph[predCourse] = append(succGraph[predCourse], succCourse)
+	}
+
+	course1Key := prefix1 + " " + courseNum1
+	course2Key := prefix2 + " " + courseNum2
+
+	// Check if course1 is a prerequisite for course2 (directly or indirectly)
+	if scheduler.isPrerequisiteOf(course1Key, course2Key, prereqGraph, make(map[string]bool)) {
+		return true, nil
+	}
+
+	// Check if course2 is a prerequisite for course1 (directly or indirectly)
+	if scheduler.isPrerequisiteOf(course2Key, course1Key, prereqGraph, make(map[string]bool)) {
+		return true, nil
+	}
+
+	return false, nil
+}
+
+// isPrerequisiteOf checks if course1 is a prerequisite of course2 (directly or through a chain)
+func (scheduler *wmu_scheduler) isPrerequisiteOf(course1, course2 string, prereqGraph map[string][]string, visited map[string]bool) bool {
+	if visited[course2] {
+		return false // Avoid infinite loops
+	}
+	visited[course2] = true
+
+	prerequisites, exists := prereqGraph[course2]
+	if !exists {
+		return false
+	}
+
+	// Check direct prerequisite
+	for _, prereq := range prerequisites {
+		if prereq == course1 {
+			return true
+		}
+	}
+
+	// Check indirect prerequisite (recursive)
+	for _, prereq := range prerequisites {
+		if scheduler.isPrerequisiteOf(course1, prereq, prereqGraph, visited) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // CrosslistingDisplayItem represents a cross-listing with enriched course and schedule data for display
@@ -4448,6 +4683,28 @@ type CourseForCrosslist struct {
 
 // RenderPrerequisitesPageGin renders the prerequisites page with all prerequisites
 func (scheduler *wmu_scheduler) RenderPrerequisitesPageGin(c *gin.Context) {
+	user, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Get current user
+	currentUser, err := scheduler.GetUserByUsername(user.Username)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Check if user is administrator
+	if currentUser == nil || !currentUser.Administrator {
+		c.HTML(http.StatusForbidden, "error.html", gin.H{
+			"Error": "Access denied. Administrator privileges required.",
+			"User":  currentUser,
+		})
+		return
+	}
+
 	prerequisites, err := scheduler.GetAllPrerequisites()
 	if err != nil {
 		c.HTML(http.StatusInternalServerError, "error.html", gin.H{"Error": "Failed to load prerequisites"})
@@ -4463,6 +4720,7 @@ func (scheduler *wmu_scheduler) RenderPrerequisitesPageGin(c *gin.Context) {
 	data := gin.H{
 		"Prerequisites": prerequisites,
 		"Prefixes":      prefixes,
+		"User":          currentUser,
 		"CSRFToken":     csrf.GetToken(c),
 	}
 
@@ -4471,17 +4729,38 @@ func (scheduler *wmu_scheduler) RenderPrerequisitesPageGin(c *gin.Context) {
 
 // FilterPrerequisitesGin handles filtering prerequisites by course number
 func (scheduler *wmu_scheduler) FilterPrerequisitesGin(c *gin.Context) {
+	user, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Get current user
+	currentUser, err := scheduler.GetUserByUsername(user.Username)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Check if user is administrator
+	if currentUser == nil || !currentUser.Administrator {
+		c.HTML(http.StatusForbidden, "error.html", gin.H{
+			"Error": "Access denied. Administrator privileges required.",
+			"User":  currentUser,
+		})
+		return
+	}
+
 	filterNumber := c.PostForm("filter_number")
-	
+
 	var prerequisites []Prerequisite
-	var err error
-	
+
 	if filterNumber == "" {
 		prerequisites, err = scheduler.GetAllPrerequisites()
 	} else {
 		prerequisites, err = scheduler.GetPrerequisitesByFilter(filterNumber)
 	}
-	
+
 	if err != nil {
 		c.HTML(http.StatusInternalServerError, "error.html", gin.H{"Error": "Failed to filter prerequisites"})
 		return
@@ -4497,6 +4776,7 @@ func (scheduler *wmu_scheduler) FilterPrerequisitesGin(c *gin.Context) {
 		"Prerequisites": prerequisites,
 		"Prefixes":      prefixes,
 		"FilterNumber":  filterNumber,
+		"User":          currentUser,
 		"CSRFToken":     csrf.GetToken(c),
 	}
 
@@ -4505,12 +4785,34 @@ func (scheduler *wmu_scheduler) FilterPrerequisitesGin(c *gin.Context) {
 
 // AddPrerequisiteGin handles adding a new prerequisite
 func (scheduler *wmu_scheduler) AddPrerequisiteGin(c *gin.Context) {
+	user, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Get current user
+	currentUser, err := scheduler.GetUserByUsername(user.Username)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Check if user is administrator
+	if currentUser == nil || !currentUser.Administrator {
+		c.HTML(http.StatusForbidden, "error.html", gin.H{
+			"Error": "Access denied. Administrator privileges required.",
+			"User":  currentUser,
+		})
+		return
+	}
+
 	predecessorPrefix := c.PostForm("predecessor_prefix")
 	predecessorNumber := c.PostForm("predecessor_number")
 	successorPrefix := c.PostForm("successor_prefix")
 	successorNumber := c.PostForm("successor_number")
 
-	err := scheduler.AddPrerequisite(predecessorPrefix, predecessorNumber, successorPrefix, successorNumber)
+	err = scheduler.AddPrerequisite(predecessorPrefix, predecessorNumber, successorPrefix, successorNumber)
 	if err != nil {
 		c.HTML(http.StatusInternalServerError, "error.html", gin.H{"Error": "Failed to add prerequisite"})
 		return
@@ -4521,6 +4823,28 @@ func (scheduler *wmu_scheduler) AddPrerequisiteGin(c *gin.Context) {
 
 // UpdatePrerequisiteGin handles updating an existing prerequisite
 func (scheduler *wmu_scheduler) UpdatePrerequisiteGin(c *gin.Context) {
+	user, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Get current user
+	currentUser, err := scheduler.GetUserByUsername(user.Username)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Check if user is administrator
+	if currentUser == nil || !currentUser.Administrator {
+		c.HTML(http.StatusForbidden, "error.html", gin.H{
+			"Error": "Access denied. Administrator privileges required.",
+			"User":  currentUser,
+		})
+		return
+	}
+
 	idStr := c.PostForm("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
@@ -4544,6 +4868,28 @@ func (scheduler *wmu_scheduler) UpdatePrerequisiteGin(c *gin.Context) {
 
 // DeletePrerequisiteGin handles deleting a prerequisite
 func (scheduler *wmu_scheduler) DeletePrerequisiteGin(c *gin.Context) {
+	user, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Get current user
+	currentUser, err := scheduler.GetUserByUsername(user.Username)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Check if user is administrator
+	if currentUser == nil || !currentUser.Administrator {
+		c.HTML(http.StatusForbidden, "error.html", gin.H{
+			"Error": "Access denied. Administrator privileges required.",
+			"User":  currentUser,
+		})
+		return
+	}
+
 	idStr := c.PostForm("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
