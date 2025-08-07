@@ -124,7 +124,7 @@
                     <select id="schedule1_id" name="schedule1_id" required>
                         <option value="">Select a schedule...</option>
                         {{range .Schedules}}
-                        <option value="{{.ID}}" {{if eq (printf "%d" .ID) $.PreSelectedSchedule1}}selected{{end}}>{{.Prefix}} {{.Term}} {{.Year}}</option>
+                        <option value="{{.ID}}" {{if eq (printf "%d" .ID) $.PreSelectedSchedule1}}selected{{end}}>{{.Department}} {{.Term}} {{.Year}}</option>
                         {{end}}
                     </select>
                 </div>
@@ -134,7 +134,7 @@
                     <select id="schedule2_id" name="schedule2_id" required>
                         <option value="">Select a schedule...</option>
                         {{range .Schedules}}
-                        <option value="{{.ID}}" {{if eq (printf "%d" .ID) $.PreSelectedSchedule2}}selected{{end}}>{{.Prefix}} {{.Term}} {{.Year}}</option>
+                        <option value="{{.ID}}" {{if eq (printf "%d" .ID) $.PreSelectedSchedule2}}selected{{end}}>{{.Department}} {{.Term}} {{.Year}}</option>
                         {{end}}
                     </select>
                 </div>

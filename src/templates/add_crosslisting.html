@@ -177,7 +177,7 @@
                             <option value="">Select a schedule...</option>
                             {{range .Schedules}}
                             <option value="{{.ID}}" {{if eq .ID $.Values.schedule1}}selected{{end}}>
-                                {{.Prefix}} {{.Term}} {{.Year}}
+                                {{.Department}} {{.Term}} {{.Year}}
                             </option>
                             {{end}}
                         </select>
@@ -198,7 +198,7 @@
                             <option value="">Select a schedule...</option>
                             {{range .Schedules}}
                             <option value="{{.ID}}" {{if eq .ID $.Values.schedule2}}selected{{end}}>
-                                {{.Prefix}} {{.Term}} {{.Year}}
+                                {{.Department}} {{.Term}} {{.Year}}
                             </option>
                             {{end}}
                         </select>

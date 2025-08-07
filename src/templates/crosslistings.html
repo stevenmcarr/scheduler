@@ -136,7 +136,7 @@
             <h1>Course Cross Listings</h1>
             {{if .Schedule}}
             <div class="schedule-info">
-                <h2>{{.Schedule.Prefix}} {{.Schedule.Term}} {{.Schedule.Year}}</h2>
+                <h2>{{.Schedule.Term}} {{.Schedule.Year}}</h2>
                 <p>{{.Schedule.Department}}</p>
             </div>
             {{end}}
@@ -167,12 +167,12 @@
                         <td class="course-title">{{.Course1.Prefix}} {{.Course1.CourseNumber}}</td>
                         <td class="crn-cell">{{.Course1.CRN}}</td>
                         <td>{{.Course1.Title}}</td>
-                        <td><span class="schedule-badge">{{.Schedule1.Prefix}} {{.Schedule1.Term}} {{.Schedule1.Year}}</span></td>
+                        <td><span class="schedule-badge">{{.Schedule1.Department}} {{.Schedule1.Term}} {{.Schedule1.Year}}</span></td>
                         <td class="arrow">↔</td>
                         <td class="course-title">{{.Course2.Prefix}} {{.Course2.CourseNumber}}</td>
                         <td class="crn-cell">{{.Course2.CRN}}</td>
                         <td>{{.Course2.Title}}</td>
-                        <td><span class="schedule-badge">{{.Schedule2.Prefix}} {{.Schedule2.Term}} {{.Schedule2.Year}}</span></td>
+                        <td><span class="schedule-badge">{{.Schedule2.Department}} {{.Schedule2.Term}} {{.Schedule2.Year}}</span></td>
                         <td>{{.CreatedAt}}</td>
                     </tr>
                     {{end}}

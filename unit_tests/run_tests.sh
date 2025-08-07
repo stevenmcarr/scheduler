@@ -47,14 +47,21 @@ schedule_result=$?
 
 echo ""
 
-# Test 4: Business Logic Validation
+# Test 4: Course Conflict Detection
+echo -e "${YELLOW}Testing Course Conflict Detection...${NC}"
+go test -v ./unit_tests/ -run "TestExtractNumericCourseNumber|TestIsInSameCourseRange|TestTimeSlotsOverlap|TestAreCoursesOnSamePrerequisiteChain|TestDetectCourseConflicts" -timeout 30s
+conflict_result=$?
+
+echo ""
+
+# Test 5: Business Logic Validation
 echo -e "${YELLOW}Testing Business Logic and Validation...${NC}"
 go test -v ./unit_tests/ -run "Test.*Validation|Test.*Logic" -timeout 30s
 logic_result=$?
 
 echo ""
 
-# Test 5: Session Management
+# Test 6: Session Management
 echo -e "${YELLOW}Testing Session Management...${NC}"
 go test -v ./unit_tests/ -run "Test.*Session" -timeout 30s
 session_result=$?
@@ -90,6 +97,12 @@ else
     echo -e "Schedule Controllers: ${RED}FAILED${NC}"
 fi
 
+if [ $conflict_result -eq 0 ]; then
+    echo -e "Course Conflict Detection: ${GREEN}PASSED${NC}"
+else
+    echo -e "Course Conflict Detection: ${RED}FAILED${NC}"
+fi
+
 if [ $logic_result -eq 0 ]; then
     echo -e "Business Logic Validation: ${GREEN}PASSED${NC}"
 else
@@ -118,7 +131,7 @@ fi
 echo ""
 
 # Calculate overall result
-total_failures=$((auth_result + data_result + schedule_result + logic_result + session_result))
+total_failures=$((auth_result + data_result + schedule_result + conflict_result + logic_result + session_result))
 
 if [ $total_failures -eq 0 ]; then
     echo -e "${GREEN}✅ All tests passed successfully!${NC}"
