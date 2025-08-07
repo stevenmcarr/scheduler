@@ -65,6 +65,21 @@
             color: white;
         }
         
+        .conflict-course {
+            background-color: #ff9800;
+            color: white;
+        }
+        
+        .conflict-description {
+            font-style: italic;
+            color: #6c757d;
+            margin-bottom: 15px;
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            border-left: 3px solid #ff9800;
+        }
+        
         .course-pair {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -180,10 +195,10 @@
         </div>
         
         <div class="summary">
-            Found {{len .Conflicts.InstructorConflicts}} instructor conflict(s), {{len .Conflicts.RoomConflicts}} room conflict(s), and {{len .Conflicts.CrosslistingConflicts}} crosslisting conflict(s)
+            Found {{len .Conflicts.InstructorConflicts}} instructor conflict(s), {{len .Conflicts.RoomConflicts}} room conflict(s), {{len .Conflicts.CrosslistingConflicts}} crosslisting conflict(s), and {{len .Conflicts.CourseConflicts}} course conflict(s)
         </div>
         
-        {{if and (eq (len .Conflicts.InstructorConflicts) 0) (eq (len .Conflicts.RoomConflicts) 0) (eq (len .Conflicts.CrosslistingConflicts) 0)}}
+        {{if and (eq (len .Conflicts.InstructorConflicts) 0) (eq (len .Conflicts.RoomConflicts) 0) (eq (len .Conflicts.CrosslistingConflicts) 0) (eq (len .Conflicts.CourseConflicts) 0)}}
         <div class="no-conflicts">
             🎉 No conflicts detected between the selected schedules!
         </div>
@@ -331,6 +346,54 @@
                                 {{if .Course2.TimeSlot.Monday}}M{{end}}{{if .Course2.TimeSlot.Tuesday}}T{{end}}{{if .Course2.TimeSlot.Wednesday}}W{{end}}{{if .Course2.TimeSlot.Thursday}}R{{end}}{{if .Course2.TimeSlot.Friday}}F{{end}}
                             </span>
                             {{end}}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {{end}}
+        </div>
+        {{end}}
+        
+        {{if .Conflicts.CourseConflicts}}
+        <div class="conflict-section">
+            <h2>Course Conflicts ({{len .Conflicts.CourseConflicts}})</h2>
+            <p class="conflict-description">Courses with the same prefix that are scheduled at overlapping times within the same course number range (1000-1999, 2000-2999, 3000-3999, 5000-5999, 6000-6999), excluding crosslisted courses and courses on the same prerequisite chain.</p>
+            {{range .Conflicts.CourseConflicts}}
+            <div class="conflict-card">
+                <span class="conflict-type conflict-course">Course Conflict</span>
+                <div class="course-pair">
+                    <div class="course-detail">
+                        <h4>{{.Course1.Prefix}} {{.Course1.CourseNumber}} - {{.Course1.Section}}</h4>
+                        <div class="course-info">
+                            <span><strong>Title:</strong> {{.Course1.Title}}</span>
+                            <span><strong>CRN:</strong> {{.Course1.CRN}}</span>
+                            <span><strong>Mode:</strong> {{.Course1.Mode}}</span>
+                            <span class="time-info">
+                                <strong>Time:</strong> 
+                                {{if .Course1.TimeSlot}}
+                                {{.Course1.TimeSlot.StartTime}} - {{.Course1.TimeSlot.EndTime}}
+                                {{if .Course1.TimeSlot.Monday}}M{{end}}{{if .Course1.TimeSlot.Tuesday}}T{{end}}{{if .Course1.TimeSlot.Wednesday}}W{{end}}{{if .Course1.TimeSlot.Thursday}}R{{end}}{{if .Course1.TimeSlot.Friday}}F{{end}}
+                                {{else}}
+                                Not scheduled
+                                {{end}}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="course-detail">
+                        <h4>{{.Course2.Prefix}} {{.Course2.CourseNumber}} - {{.Course2.Section}}</h4>
+                        <div class="course-info">
+                            <span><strong>Title:</strong> {{.Course2.Title}}</span>
+                            <span><strong>CRN:</strong> {{.Course2.CRN}}</span>
+                            <span><strong>Mode:</strong> {{.Course2.Mode}}</span>
+                            <span class="time-info">
+                                <strong>Time:</strong> 
+                                {{if .Course2.TimeSlot}}
+                                {{.Course2.TimeSlot.StartTime}} - {{.Course2.TimeSlot.EndTime}}
+                                {{if .Course2.TimeSlot.Monday}}M{{end}}{{if .Course2.TimeSlot.Tuesday}}T{{end}}{{if .Course2.TimeSlot.Wednesday}}W{{end}}{{if .Course2.TimeSlot.Thursday}}R{{end}}{{if .Course2.TimeSlot.Friday}}F{{end}}
+                                {{else}}
+                                Not scheduled
+                                {{end}}
+                            </span>
                         </div>
                     </div>
                 </div>
