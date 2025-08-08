@@ -87,3 +87,6 @@ tmp/
 
 hash_password.go
 test_auth.go
+
+scripts/
+sql/
