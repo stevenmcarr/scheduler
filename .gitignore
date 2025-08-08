@@ -48,6 +48,11 @@ config/secrets.yml
 *.sql
 *.dump
 *.backup
+
+# Test and temporary scripts
+test_*
+temp_*
+tmp_*
 backup_*
 *_backup*
 
@@ -82,3 +87,6 @@ tmp/
 
 hash_password.go
 test_auth.go
+
+scripts/
+sql/

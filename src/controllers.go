@@ -647,6 +647,7 @@ func (scheduler *wmu_scheduler) AddCourseGin(c *gin.Context) {
 	// Parse form values
 	crn := c.PostForm("crn")
 	section := c.PostForm("section")
+	prefix := c.PostForm("prefix")
 	courseNumber := c.PostForm("course_number")
 	title := c.PostForm("title")
 	minCredits := c.PostForm("min_credits")
@@ -671,6 +672,12 @@ func (scheduler *wmu_scheduler) AddCourseGin(c *gin.Context) {
 	sectionInt, err := strconv.Atoi(section)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid section"})
+		return
+	}
+
+	prefixID, err := scheduler.GetPrefixID(prefix)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid prefix '%s'", prefix)})
 		return
 	}
 
@@ -766,7 +773,7 @@ func (scheduler *wmu_scheduler) AddCourseGin(c *gin.Context) {
 	}
 
 	err = scheduler.AddCourse(
-		crnInt, sectionInt, courseNumberInt, title,
+		crnInt, sectionInt, prefixID, courseNumberInt, title,
 		minCreditsInt, maxCreditsInt, minContactInt, maxContactInt,
 		capInt, approvalInt == 1, labInt == 1, instructorIDInt, timeslotIDInt,
 		roomIDInt, mode, comment, scheduleInt,
@@ -3346,16 +3353,49 @@ func (scheduler *wmu_scheduler) ExportCoursesToExcel(c *gin.Context) {
 		},
 	})
 
-	// Apply center alignment to specified columns
+	// Apply center alignment to specified columns for headers only
 	centerColumns := []string{"A", "B", "C", "E", "F", "G", "H", "I", "J", "K", "L", "M"} // CRN, Course ID, Section, Lab, Credit Hours, Contact Hours, Cap, Spec Appr, Mtg Type, Days, Time, Location
 	for _, col := range centerColumns {
 		// Apply center header style to header row
 		f.SetCellStyle(sheetName, fmt.Sprintf("%s5", col), fmt.Sprintf("%s5", col), centerHeaderStyle)
-		// Apply center style to data rows
-		if len(courses) > 0 {
-			f.SetCellStyle(sheetName, fmt.Sprintf("%s6", col), fmt.Sprintf("%s%d", col, 6+len(courses)-1), centerStyle)
-		}
 	}
+
+	// Create status-based styles for data rows
+	addedStyle, _ := f.NewStyle(&excelize.Style{
+		Fill: excelize.Fill{
+			Type:    "pattern",
+			Color:   []string{"90EE90"}, // Light green background for Added courses
+			Pattern: 1,
+		},
+		Alignment: &excelize.Alignment{
+			Horizontal: "center",
+			Vertical:   "center",
+		},
+	})
+
+	updatedStyle, _ := f.NewStyle(&excelize.Style{
+		Fill: excelize.Fill{
+			Type:    "pattern",
+			Color:   []string{"FFFFE0"}, // Light yellow background for Updated courses
+			Pattern: 1,
+		},
+		Alignment: &excelize.Alignment{
+			Horizontal: "center",
+			Vertical:   "center",
+		},
+	})
+
+	removedStyle, _ := f.NewStyle(&excelize.Style{
+		Fill: excelize.Fill{
+			Type:    "pattern",
+			Color:   []string{"FFB6C1"}, // Light red background for Removed courses
+			Pattern: 1,
+		},
+		Alignment: &excelize.Alignment{
+			Horizontal: "center",
+			Vertical:   "center",
+		},
+	})
 
 	// Write course data starting from row 6
 	for i, course := range courses {
@@ -3456,6 +3496,22 @@ func (scheduler *wmu_scheduler) ExportCoursesToExcel(c *gin.Context) {
 		f.SetCellValue(sheetName, fmt.Sprintf("M%d", row), formatLocation(course.RoomID))         // Location
 		f.SetCellValue(sheetName, fmt.Sprintf("N%d", row), formatInstructor(course.InstructorID)) // Primary Instructor
 		f.SetCellValue(sheetName, fmt.Sprintf("O%d", row), course.Comment)                        // Comment
+
+		// Apply status-based row background color
+		var rowStyle int
+		switch course.Status {
+		case "Added":
+			rowStyle = addedStyle
+		case "Updated":
+			rowStyle = updatedStyle
+		case "Removed":
+			rowStyle = removedStyle
+		default:
+			rowStyle = centerStyle // Use default center style for other statuses
+		}
+
+		// Apply the style to the entire row (A to O)
+		f.SetCellStyle(sheetName, fmt.Sprintf("A%d", row), fmt.Sprintf("O%d", row), rowStyle)
 	}
 
 	// Set custom column widths
@@ -3464,8 +3520,8 @@ func (scheduler *wmu_scheduler) ExportCoursesToExcel(c *gin.Context) {
 	f.SetColWidth(sheetName, "C", "C", 20) // Section
 	f.SetColWidth(sheetName, "D", "D", 30) // Title (increased to 30)
 	f.SetColWidth(sheetName, "E", "E", 12) // Lab
-	f.SetColWidth(sheetName, "F", "F", 10) // Credit Hours
-	f.SetColWidth(sheetName, "G", "G", 12) // Contact Hours
+	f.SetColWidth(sheetName, "F", "F", 18) // Credit Hours
+	f.SetColWidth(sheetName, "G", "G", 18) // Contact Hours
 	f.SetColWidth(sheetName, "H", "H", 8)  // Cap
 	f.SetColWidth(sheetName, "I", "I", 10) // Spec Appr
 	f.SetColWidth(sheetName, "J", "J", 12) // Mtg Type
@@ -3473,7 +3529,7 @@ func (scheduler *wmu_scheduler) ExportCoursesToExcel(c *gin.Context) {
 	f.SetColWidth(sheetName, "L", "L", 30) // Time (increased to 30)
 	f.SetColWidth(sheetName, "M", "M", 15) // Location
 	f.SetColWidth(sheetName, "N", "N", 20) // Primary Instructor
-	f.SetColWidth(sheetName, "O", "O", 15) // Comment
+	f.SetColWidth(sheetName, "O", "O", 30) // Comment
 
 	// Generate filename with schedule info
 	filename := fmt.Sprintf("%s_%s_%d.xlsx", schedule.Department, schedule.Term, schedule.Year)
@@ -3642,6 +3698,7 @@ type CourseDetail struct {
 	TimeSlotID          int
 	RoomID              int
 	Mode                string
+	Status              string
 	Lab                 bool
 	TimeSlot            *TimeSlot
 }
@@ -3815,36 +3872,48 @@ func (scheduler *wmu_scheduler) DetectConflictsBetweenSchedules(schedule1ID, sch
 				continue
 			}
 
-			crosslist, err := scheduler.AreCoursesCrosslisted(course1.CRN, course2.CRN)
-			if err != nil || crosslist {
-				// Skip crosslisted courses
+			// Skip courses with "Removed" status - they cannot conflict with any other course
+			if course1.Status == "Removed" || course2.Status == "Removed" {
 				continue
+			}
+
+			// Check if courses are cross-listed
+			crosslist, err := scheduler.AreCoursesCrosslisted(course1.CRN, course2.CRN)
+			if err != nil {
+				AppLogger.LogError(fmt.Sprintf("Error checking crosslisting for CRNs %d and %d", course1.CRN, course2.CRN), err)
+				// Continue processing even if crosslisting check fails
+				crosslist = false
 			}
 
 			// Check if time slots overlap
 			if scheduler.timeSlotsOverlap(course1.TimeSlot, course2.TimeSlot) {
 				// Check for instructor conflicts
 				if course1.InstructorID == course2.InstructorID && course1.InstructorID > 0 {
-					// Check for FSO/PSO exception
-					if !scheduler.isFSOPSOException(course1, course2) {
-						conflictPair := ConflictPair{
-							Course1: course1,
-							Course2: course2,
-							Type:    "instructor",
-						}
-						// Avoid duplicate conflicts
-						if !conflictExists(instructorConflicts, course1, course2, "instructor") {
-
-							// Add to instructor conflicts
-							instructorConflicts = append(instructorConflicts, conflictPair)
+					// Cross-listed courses CAN share the same instructor without conflict
+					// since they represent the same course offered under different numbers
+					if !crosslist {
+						// Check for FSO/PSO exception for non-crosslisted courses
+						if !scheduler.isFSOPSOException(course1, course2) {
+							conflictPair := ConflictPair{
+								Course1: course1,
+								Course2: course2,
+								Type:    "instructor",
+							}
+							// Avoid duplicate conflicts
+							if !conflictExists(instructorConflicts, course1, course2, "instructor") {
+								// Add to instructor conflicts
+								instructorConflicts = append(instructorConflicts, conflictPair)
+							}
 						}
 					}
 				}
 
 				// Check for room conflicts (different courses in same room)
 				// Skip room conflicts if either course is FSO, PSO, or AO mode
+				// Cross-listed courses CAN share the same room without conflict
+				// since they represent the same course offered under different numbers
 				if course1.RoomID == course2.RoomID && course1.RoomID > 0 && !scheduler.isSameCourse(course1, course2) &&
-					!scheduler.isRoomExemptMode(course1) && !scheduler.isRoomExemptMode(course2) {
+					!scheduler.isRoomExemptMode(course1) && !scheduler.isRoomExemptMode(course2) && !crosslist {
 					conflictPair := ConflictPair{
 						Course1: course1,
 						Course2: course2,
@@ -3932,6 +4001,7 @@ func (scheduler *wmu_scheduler) getCoursesWithDetails(scheduleID int) ([]CourseD
 			TimeSlotID:          course.TimeSlotID,
 			RoomID:              course.RoomID,
 			Mode:                course.Mode,
+			Status:              course.Status,
 			Lab:                 course.Lab,
 			TimeSlot:            timeslot,
 		})
@@ -4017,6 +4087,11 @@ func (scheduler *wmu_scheduler) detectCrosslistingConflicts(courses1, courses2 [
 	for i, course1 := range allCourses {
 		for j, course2 := range allCourses {
 			if i >= j { // Avoid checking the same pair twice and avoid self-comparison
+				continue
+			}
+
+			// Skip courses with "Removed" status - they cannot conflict with any other course
+			if course1.Status == "Removed" || course2.Status == "Removed" {
 				continue
 			}
 
@@ -4122,6 +4197,11 @@ func (scheduler *wmu_scheduler) detectCourseConflicts(courses1, courses2 []Cours
 	for i, course1 := range allCourses {
 		for j, course2 := range allCourses {
 			if i >= j { // Avoid checking the same pair twice and avoid self-comparison
+				continue
+			}
+
+			// Skip courses with "Removed" status - they cannot conflict with any other course
+			if course1.Status == "Removed" || course2.Status == "Removed" {
 				continue
 			}
 

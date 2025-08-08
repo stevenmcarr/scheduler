@@ -88,14 +88,22 @@ func main() {
 		envFile = ".env" // default
 	}
 
-	// Try multiple paths for .env file
-	envPaths := []string{envFile, ".env", "../.env", "/var/www/html/scheduler/.env"}
+	// Try multiple paths for .env file - prioritize local development environment
+	// Order: 1) current directory, 2) custom env file, 3) parent directory, 4) production path
+	envPaths := []string{".env"}
+	if envFile != ".env" {
+		envPaths = append(envPaths, envFile)
+	}
+	envPaths = append(envPaths, "../.env", "/var/www/html/scheduler/.env")
 	var envErr error
+	AppLogger.LogInfo(fmt.Sprintf("Searching for .env file in order: %v", envPaths))
 	for _, path := range envPaths {
 		envErr = godotenv.Load(path)
 		if envErr == nil {
-			AppLogger.LogInfo(fmt.Sprintf("Loaded environment from: %s", path))
+			AppLogger.LogInfo(fmt.Sprintf("✅ Successfully loaded environment from: %s", path))
 			break
+		} else {
+			AppLogger.LogInfo(fmt.Sprintf("❌ Could not load: %s (%v)", path, envErr))
 		}
 	}
 	if envErr != nil {
