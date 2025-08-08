@@ -398,7 +398,7 @@ func (scheduler *wmu_scheduler) GetActiveCoursesForSchedule(scheduleID int) ([]C
 		JOIN schedules s ON c.schedule_id = s.id
 		JOIN prefixes p ON c.prefix_id = p.id
 		WHERE c.schedule_id = ? AND c.status != 'Deleted'
-		ORDER BY c.course_number, c.crn, c.section
+		ORDER BY c.course_number, p.prefix, c.section, c.crn
 	`, scheduleID)
 	if err != nil {
 		return nil, err
@@ -822,6 +822,7 @@ func (scheduler *wmu_scheduler) GetPrefix(prefix string) (*Prefix, error) {
 func (scheduler *wmu_scheduler) AddCourse(
 	crn int,
 	section int,
+	prefixID int,
 	courseNumber int,
 	title string,
 	minCredits int,
@@ -858,9 +859,9 @@ func (scheduler *wmu_scheduler) AddCourse(
 
 	_, err := scheduler.database.Exec(`
 		INSERT INTO courses (
-			crn, section, schedule_id, course_number, title, min_credits, max_credits, min_contact, max_contact, cap, approval, lab, instructor_id, timeslot_id, room_id, mode, status, comment
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? ,?, ?)
-	`, crn, section, scheduleID, courseNumber, title, minCredits, maxCredits, minContact, maxContact, cap, approval, lab, instructorVal, timeslotVal, roomVal, mode, "Added", comment)
+			crn, section, prefix_id, schedule_id, course_number, title, min_credits, max_credits, min_contact, max_contact, cap, approval, lab, instructor_id, timeslot_id, room_id, mode, status, comment
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? ,?, ?)
+	`, crn, section, prefixID, scheduleID, courseNumber, title, minCredits, maxCredits, minContact, maxContact, cap, approval, lab, instructorVal, timeslotVal, roomVal, mode, "Added", comment)
 	return err
 }
 
