@@ -880,15 +880,6 @@ func (scheduler *wmu_scheduler) ShowImportPage(c *gin.Context) {
 		return
 	}
 
-	// Check if user is administrator
-	if currentUser == nil || !currentUser.Administrator {
-		c.HTML(http.StatusForbidden, "error.html", gin.H{
-			"Error": "Access denied. Administrator privileges required.",
-			"User":  currentUser,
-		})
-		return
-	}
-
 	data := gin.H{
 		"User":      currentUser,
 		"CSRFToken": csrf.GetToken(c),
@@ -3604,12 +3595,48 @@ func addCourseInRange(dayMap map[string][]CourseScheduleItem, course CourseSched
 func (scheduler *wmu_scheduler) RenderCoursesTableGin(c *gin.Context) {
 	session := sessions.Default(c)
 
-	// Get all courses with time slot and instructor data
-	courseScheduleItems, err := scheduler.GetCoursesWithScheduleData()
+	// Get current user for navbar display
+	user, err := scheduler.getCurrentUser(c)
 	if err != nil {
-		AppLogger.Printf("Error getting courses with schedule data: %v", err)
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Get current user details
+	currentUser, err := scheduler.GetUserByUsername(user.Username)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Get the current schedule ID from session
+	scheduleIDStr, err := scheduler.getCurrentSchedule(c)
+	if err != nil {
+		AppLogger.Printf("No current schedule in session: %v", err)
+		c.HTML(http.StatusBadRequest, "error.html", gin.H{
+			"Error": "No schedule currently selected. Please select a schedule first.",
+			"User":  currentUser,
+		})
+		return
+	}
+
+	scheduleID, err := strconv.Atoi(scheduleIDStr)
+	if err != nil {
+		AppLogger.Printf("Invalid schedule ID in session: %v", err)
+		c.HTML(http.StatusBadRequest, "error.html", gin.H{
+			"Error": "Invalid schedule selected.",
+			"User":  currentUser,
+		})
+		return
+	}
+
+	// Get courses with time slot and instructor data for the current schedule only
+	courseScheduleItems, err := scheduler.GetCoursesWithScheduleDataForSchedule(scheduleID)
+	if err != nil {
+		AppLogger.Printf("Error getting courses with schedule data for schedule %d: %v", scheduleID, err)
 		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
 			"Error": "Unable to load course schedule data",
+			"User":  currentUser,
 		})
 		return
 	}
@@ -3668,12 +3695,21 @@ func (scheduler *wmu_scheduler) RenderCoursesTableGin(c *gin.Context) {
 	}
 	session.Save()
 
+	// Get the schedule info for display
+	scheduleInfo, err := scheduler.GetScheduleByID(scheduleID)
+	if err != nil {
+		AppLogger.Printf("Error getting schedule info for ID %d: %v", scheduleID, err)
+		scheduleInfo = &Schedule{} // Create empty schedule if we can't get it
+	}
+
 	c.HTML(http.StatusOK, "courses_table", gin.H{
-		"TimeSlots": timeSlotStrings,
-		"Schedule":  schedule,
-		"Error":     errorMsg,
-		"Success":   successMsg,
-		"CSRFToken": csrf.GetToken(c),
+		"TimeSlots":    timeSlotStrings,
+		"Schedule":     schedule,
+		"ScheduleInfo": scheduleInfo,
+		"User":         currentUser,
+		"Error":        errorMsg,
+		"Success":      successMsg,
+		"CSRFToken":    csrf.GetToken(c),
 	})
 }
 
