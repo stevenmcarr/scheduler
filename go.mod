@@ -13,6 +13,7 @@ require (
 	github.com/utrack/gin-csrf v0.0.0-20190424104817-40fb8d2c8fca
 	github.com/xuri/excelize/v2 v2.9.1
 	golang.org/x/crypto v0.38.0
+	golang.org/x/term v0.32.0
 )
 
 require (

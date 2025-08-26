@@ -1,0 +1,43 @@
+[Unit]
+Description=WMU Course Scheduler Application
+Documentation=https://github.com/your-repo/scheduler
+After=network.target mysql.service
+Wants=mysql.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/html/scheduler
+ExecStart=/var/www/html/scheduler/scheduler
+Restart=always
+RestartSec=5
+StartLimitInterval=60s
+StartLimitBurst=3
+
+# Environment variables
+Environment=GIN_MODE=release
+EnvironmentFile=-/var/www/html/scheduler/.env
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/scheduler /var/www/html/scheduler/uploads
+ReadOnlyPaths=/etc/letsencrypt/live/vaccs.ceas.wmich.edu /etc/letsencrypt/archive/vaccs.ceas.wmich.edu
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=scheduler
+
+[Install]
+WantedBy=multi-user.target
