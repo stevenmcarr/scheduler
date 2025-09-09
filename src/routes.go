@@ -194,6 +194,11 @@ func (scheduler *wmu_scheduler) router() *gin.Engine {
 		scheduler.RenderCoursesTableGin(c)
 	})
 
+	// Deleted courses view
+	r.GET("/scheduler/deleted", func(c *gin.Context) {
+		scheduler.RenderDeletedCoursesPageGin(c)
+	})
+
 	// Cross listings view
 	r.GET("/scheduler/crosslistings", func(c *gin.Context) {
 		scheduler.RenderCrosslistingsPageGin(c)

@@ -33,23 +33,19 @@ func ValidateEmail(email string) bool {
 
 // ValidatePassword checks if the password meets the requirements.
 func ValidatePassword(password string) bool {
-	if len(password) < 15 {
+	if len(password) < 8 {
 		return false
 	}
-	var hasUpper, hasLower, hasNumber, hasSpecial bool
+	var hasNumber, hasSpecial bool
 	for _, c := range password {
 		switch {
-		case unicode.IsUpper(c):
-			hasUpper = true
-		case unicode.IsLower(c):
-			hasLower = true
 		case unicode.IsNumber(c):
 			hasNumber = true
 		case unicode.IsPunct(c) || unicode.IsSymbol(c):
 			hasSpecial = true
 		}
 	}
-	return hasUpper && hasLower && hasNumber && hasSpecial
+	return hasNumber && hasSpecial
 }
 
 // AddUser inserts a new user into the users table.
@@ -428,6 +424,52 @@ func (scheduler *wmu_scheduler) GetActiveCoursesForSchedule(scheduleID int) ([]C
 		if course.Status != "Deleted" {
 			courses = append(courses, course)
 		}
+	}
+	return courses, nil
+}
+
+// GetDeletedCoursesForSchedule retrieves all deleted courses for a specific schedule
+func (scheduler *wmu_scheduler) GetDeletedCoursesForSchedule(scheduleID int) ([]Course, error) {
+	rows, err := scheduler.database.Query(`
+		SELECT c.id, c.crn, p.prefix, c.section, c.course_number, c.title, 
+			   c.min_credits, c.max_credits, c.min_contact, c.max_contact, c.cap, 
+			   c.approval = 1 as approval, c.lab = 1 as lab,
+			   COALESCE(c.instructor_id, -1) as instructor_id,
+			   COALESCE(c.timeslot_id, -1) as timeslot_id,
+			   COALESCE(c.room_id, -1) as room_id,
+			   c.mode, c.status, c.comment 
+		FROM courses c
+		JOIN schedules s ON c.schedule_id = s.id
+		JOIN prefixes p ON c.prefix_id = p.id
+		WHERE c.schedule_id = ? AND c.status = 'Deleted'
+		ORDER BY c.course_number, p.prefix, c.section, c.crn
+	`, scheduleID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var courses []Course
+	for rows.Next() {
+		var course Course
+		course.ScheduleID = scheduleID // Set ScheduleID from the parameter
+		if err := rows.Scan(&course.ID, &course.CRN, &course.Prefix, &course.Section, &course.CourseNumber, &course.Title, &course.MinCredits, &course.MaxCredits, &course.MinContact, &course.MaxContact, &course.Cap, &course.Approval, &course.Lab, &course.InstructorID, &course.TimeSlotID, &course.RoomID, &course.Mode, &course.Status, &course.Comment); err != nil {
+			return nil, err
+		}
+		// Set compatibility fields
+		if course.MinCredits < course.MaxCredits {
+			course.Credits = fmt.Sprintf("%d-%d", course.MinCredits, course.MaxCredits)
+		} else {
+			course.Credits = fmt.Sprintf("%d", course.MinCredits)
+		}
+
+		if course.MinContact < course.MaxContact {
+			course.Contact = fmt.Sprintf("%d-%d", course.MinContact, course.MaxContact)
+		} else {
+			course.Contact = fmt.Sprintf("%d", course.MinContact)
+		}
+
+		courses = append(courses, course)
 	}
 	return courses, nil
 }
