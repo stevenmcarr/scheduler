@@ -86,7 +86,7 @@
                         <option value="">Select Instructor</option>
                         {{range .Instructors}}
                             <option value="{{.ID}}">
-                                {{.FirstName}} {{.LastName}}
+                                {{.LastName}}, {{.FirstName}}
                             </option>
                         {{end}}
                     </select>

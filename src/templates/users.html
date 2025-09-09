@@ -182,6 +182,7 @@
                         </th>
                         <th class="sortable" onclick="sortTable(1)">Username</th>
                         <th>Email</th>
+                        <th>Department</th>
                         <th>New Password</th>
                         <th>Confirm Password</th>
                         <th>Is Logged In</th>
@@ -199,6 +200,15 @@
                         </td>
                         <td>
                             <input type="email" value="{{.Email}}" onchange="updateUser(this, 'Email')" />
+                        </td>
+                        <td>
+                            <select onchange="updateUser(this, 'DepartmentID')" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 4px;" required>
+                                <option value="">Select Department</option>
+                                {{ $user := . }}
+                                {{range $.Departments}}
+                                <option value="{{.ID}}" {{if eq .ID $user.DepartmentID}}selected{{end}}>{{.Name}}</option>
+                                {{end}}
+                            </select>
                         </td>
                         <td>
                             <input type="password" placeholder="New password (leave blank to keep current)" onchange="updateUser(this, 'NewPassword')" />
@@ -253,8 +263,8 @@
         }
 
         function validatePasswordFields(row) {
-            const newPasswordInput = row.querySelector('td:nth-child(4) input[type="password"]');
-            const confirmPasswordInput = row.querySelector('td:nth-child(5) input[type="password"]');
+            const newPasswordInput = row.querySelector('td:nth-child(5) input[type="password"]'); // Adjusted for department column
+            const confirmPasswordInput = row.querySelector('td:nth-child(6) input[type="password"]'); // Adjusted for department column
             
             if (!newPasswordInput || !confirmPasswordInput) return;
             
@@ -342,6 +352,7 @@
             modifiedRows.forEach(row => {
                 const userId = row.getAttribute('data-user-id');
                 const inputs = row.querySelectorAll('input');
+                const selects = row.querySelectorAll('select');
                 
                 // Extract values based on input positions and types
                 let username = '';
@@ -350,6 +361,20 @@
                 let confirmPassword = '';
                 let isLoggedIn = false;
                 let administrator = false;
+                let departmentID = 0;
+
+                // Get department ID from select dropdown
+                selects.forEach(select => {
+                    const cell = select.closest('td');
+                    const cellIndex = cell.cellIndex;
+                    if (cellIndex === 3) { // Department column
+                        departmentID = parseInt(select.value) || 0;
+                        if (departmentID <= 0) {
+                            alert('Department is required for all users.');
+                            return;
+                        }
+                    }
+                });
                 
                 inputs.forEach(input => {
                     if (input.type === 'text') {
@@ -360,18 +385,18 @@
                         // Determine which password field this is based on its position
                         const cell = input.closest('td');
                         const cellIndex = cell.cellIndex;
-                        if (cellIndex === 3) { // New Password column
+                        if (cellIndex === 4) { // New Password column (adjusted for department column)
                             newPassword = input.value;
-                        } else if (cellIndex === 4) { // Confirm Password column
+                        } else if (cellIndex === 5) { // Confirm Password column (adjusted for department column)
                             confirmPassword = input.value;
                         }
                     } else if (input.type === 'checkbox' && input.className !== 'user-select') {
                         // Determine which checkbox this is based on its position
                         const cell = input.closest('td');
                         const cellIndex = cell.cellIndex;
-                        if (cellIndex === 5) { // Is Logged In column (shifted due to password columns)
+                        if (cellIndex === 6) { // Is Logged In column (adjusted for department column)
                             isLoggedIn = input.checked;
-                        } else if (cellIndex === 6) { // Administrator column (shifted due to password columns)
+                        } else if (cellIndex === 7) { // Administrator column (adjusted for department column)
                             administrator = input.checked;
                         }
                     }
@@ -394,7 +419,8 @@
                     email: email,
                     newPassword: newPassword,
                     isLoggedIn: isLoggedIn,
-                    administrator: administrator
+                    administrator: administrator,
+                    departmentID: departmentID
                 });
             });
             

@@ -21,6 +21,7 @@ type User struct {
 	Password      string
 	IsLoggedIn    bool
 	Administrator bool
+	DepartmentID  int
 }
 
 // Email regex (simple version)
@@ -49,14 +50,19 @@ func ValidatePassword(password string) bool {
 }
 
 // AddUser inserts a new user into the users table.
-func (scheduler *wmu_scheduler) AddUser(username, email, password string) error {
+func (scheduler *wmu_scheduler) AddUser(username, email, password string, departmentID int) error {
+	if departmentID <= 0 {
+		err := errors.New("department is required")
+		AppLogger.LogError(fmt.Sprintf("Failed to add user %s: department ID %d is invalid", username, departmentID), err)
+		return err
+	}
 	if !ValidateEmail(email) {
 		err := errors.New("invalid email address")
 		AppLogger.LogError(fmt.Sprintf("Failed to add user %s: invalid email %s", username, email), err)
 		return err
 	}
 	if !ValidatePassword(password) {
-		err := errors.New("password does not meet requirements: must be at least 15 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character")
+		err := errors.New("password does not meet requirements: must be at least 8 characters long and contain at least one number and one special character")
 		AppLogger.LogError(fmt.Sprintf("Failed to add user %s: password validation failed", username), err)
 		return err
 	}
@@ -65,7 +71,7 @@ func (scheduler *wmu_scheduler) AddUser(username, email, password string) error 
 		AppLogger.LogError(fmt.Sprintf("Failed to hash password for user %s", username), err)
 		return err
 	}
-	_, err = scheduler.database.Exec("INSERT INTO users (username, email, password) VALUES (?, ?, ?)", username, email, hashed)
+	_, err = scheduler.database.Exec("INSERT INTO users (username, email, password, department_id) VALUES (?, ?, ?, ?)", username, email, hashed, departmentID)
 	if err != nil {
 		AppLogger.LogError(fmt.Sprintf("Failed to insert user %s into database", username), err)
 	}
@@ -142,7 +148,7 @@ func (scheduler *wmu_scheduler) SetUserLoggedInStatus(usernameOrEmail string, is
 
 func (scheduler *wmu_scheduler) GetUserByUsername(username string) (*User, error) {
 	var user User
-	err := scheduler.database.QueryRow("SELECT id, username, email, is_logged_in, administrator FROM users WHERE username = ?", username).Scan(&user.ID, &user.Username, &user.Email, &user.IsLoggedIn, &user.Administrator)
+	err := scheduler.database.QueryRow("SELECT id, username, email, is_logged_in, administrator, department_id FROM users WHERE username = ?", username).Scan(&user.ID, &user.Username, &user.Email, &user.IsLoggedIn, &user.Administrator, &user.DepartmentID)
 	if err == sql.ErrNoRows {
 		return nil, nil // User not found
 	}
@@ -155,7 +161,7 @@ func (scheduler *wmu_scheduler) GetUserByUsername(username string) (*User, error
 
 func (scheduler *wmu_scheduler) GetUserByEmail(email string) (*User, error) {
 	var user User
-	err := scheduler.database.QueryRow("SELECT id, username, email, is_logged_in, administrator FROM users WHERE email = ?", email).Scan(&user.ID, &user.Username, &user.Email, &user.IsLoggedIn, &user.Administrator)
+	err := scheduler.database.QueryRow("SELECT id, username, email, is_logged_in, administrator, department_id FROM users WHERE email = ?", email).Scan(&user.ID, &user.Username, &user.Email, &user.IsLoggedIn, &user.Administrator, &user.DepartmentID)
 	if err == sql.ErrNoRows {
 		return nil, nil // User not found
 	}
@@ -319,6 +325,54 @@ func (scheduler *wmu_scheduler) GetAllSchedules() ([]Schedule, error) {
 		schedules = append(schedules, schedule)
 	}
 	return schedules, nil
+}
+
+// GetSchedulesByDepartment retrieves all schedules for a specific department
+func (scheduler *wmu_scheduler) GetSchedulesByDepartment(departmentID int) ([]Schedule, error) {
+	rows, err := scheduler.database.Query(`
+		SELECT s.id, s.term, s.year, d.name, s.created_at 
+		FROM schedules s
+		JOIN departments d ON s.department_id = d.id
+		WHERE s.department_id = ?
+		ORDER BY s.year DESC, s.term, d.name
+	`, departmentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var schedules []Schedule
+	for rows.Next() {
+		var schedule Schedule
+		if err := rows.Scan(&schedule.ID, &schedule.Term, &schedule.Year, &schedule.Department, &schedule.Created); err != nil {
+			return nil, err
+		}
+		prefixes, err := scheduler.GetPrefixesForSchedule(schedule.ID)
+		if err != nil {
+			return nil, err
+		}
+		schedule.Prefixes = prefixes
+		schedules = append(schedules, schedule)
+	}
+	return schedules, nil
+}
+
+// CheckUserAccessToSchedule verifies if a user can access a specific schedule
+// Administrators can access all schedules, regular users can only access schedules from their department
+func (scheduler *wmu_scheduler) CheckUserAccessToSchedule(user *User, scheduleID int) (bool, error) {
+	// Administrators can access all schedules
+	if user.Administrator {
+		return true, nil
+	}
+
+	// Check if the schedule belongs to the user's department
+	var scheduleDepartmentID int
+	err := scheduler.database.QueryRow("SELECT department_id FROM schedules WHERE id = ?", scheduleID).Scan(&scheduleDepartmentID)
+	if err != nil {
+		return false, err
+	}
+
+	return user.DepartmentID == scheduleDepartmentID, nil
 }
 
 func (scheduler *wmu_scheduler) GetScheduleByID(id int) (*Schedule, error) {
@@ -727,9 +781,38 @@ func (scheduler *wmu_scheduler) GetAllInstructors() ([]Instructor, error) {
 		SELECT i.id, i.last_name, i.first_name, d.name, i.status
 		FROM instructors i
 		JOIN departments d ON i.department_id = d.id
-		ORDER BY d.name, i.last_name, i.first_name
+		ORDER BY i.last_name, i.first_name
 	`
 	rows, err := scheduler.database.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var instructors []Instructor
+	for rows.Next() {
+		var instructor Instructor
+		err := rows.Scan(&instructor.ID, &instructor.LastName, &instructor.FirstName, &instructor.Department, &instructor.Status)
+		if err != nil {
+			return nil, err
+		}
+		instructor.Status = NormalizeStatus(instructor.Status) // Normalize status
+		instructors = append(instructors, instructor)
+	}
+
+	return instructors, nil
+}
+
+// GetInstructorsByDepartment retrieves all instructors for a specific department
+func (scheduler *wmu_scheduler) GetInstructorsByDepartment(departmentID int) ([]Instructor, error) {
+	query := `
+		SELECT i.id, i.last_name, i.first_name, d.name, i.status
+		FROM instructors i
+		JOIN departments d ON i.department_id = d.id
+		WHERE i.department_id = ?
+		ORDER BY i.last_name, i.first_name
+	`
+	rows, err := scheduler.database.Query(query, departmentID)
 	if err != nil {
 		return nil, err
 	}
@@ -811,7 +894,7 @@ func (scheduler *wmu_scheduler) GetAllDepartments() ([]Department, error) {
 
 // GetAllUsers retrieves all users from the database
 func (scheduler *wmu_scheduler) GetAllUsers() ([]User, error) {
-	query := "SELECT id, username, email, is_logged_in, administrator FROM users ORDER BY username"
+	query := "SELECT id, username, email, is_logged_in, administrator, department_id FROM users ORDER BY username"
 	rows, err := scheduler.database.Query(query)
 	if err != nil {
 		return nil, err
@@ -821,7 +904,7 @@ func (scheduler *wmu_scheduler) GetAllUsers() ([]User, error) {
 	var users []User
 	for rows.Next() {
 		var user User
-		err := rows.Scan(&user.ID, &user.Username, &user.Email, &user.IsLoggedIn, &user.Administrator)
+		err := rows.Scan(&user.ID, &user.Username, &user.Email, &user.IsLoggedIn, &user.Administrator, &user.DepartmentID)
 		if err != nil {
 			return nil, err
 		}
@@ -1354,6 +1437,19 @@ func (scheduler *wmu_scheduler) GetDepartmentID(name string) (int, error) {
 	return id, nil
 }
 
+// GetDepartmentByID retrieves a department by its ID
+func (scheduler *wmu_scheduler) GetDepartmentByID(id int) (*Department, error) {
+	var dept Department
+	err := scheduler.database.QueryRow("SELECT id, name FROM departments WHERE id = ?", id).Scan(&dept.ID, &dept.Name)
+	if err == sql.ErrNoRows {
+		return nil, nil // Department not found
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &dept, nil
+}
+
 // GetPrefixIDsForDepartment retrieves all prefix IDs for a given department name
 func (scheduler *wmu_scheduler) GetPrefixIDsForDepartment(departmentName string) ([]int, error) {
 	rows, err := scheduler.database.Query(`
@@ -1416,7 +1512,10 @@ func (scheduler *wmu_scheduler) DeletePrefix(prefixID int) error {
 }
 
 // UpdateUserByID updates a user's information by ID
-func (scheduler *wmu_scheduler) UpdateUserByID(userID int, username string, email string, isLoggedIn bool, administrator bool, newPassword string) error {
+func (scheduler *wmu_scheduler) UpdateUserByID(userID int, username string, email string, isLoggedIn bool, administrator bool, newPassword string, departmentID int) error {
+	if departmentID <= 0 {
+		return errors.New("department is required")
+	}
 	if !ValidateEmail(email) {
 		return errors.New("invalid email address")
 	}
@@ -1429,13 +1528,13 @@ func (scheduler *wmu_scheduler) UpdateUserByID(userID int, username string, emai
 			return err
 		}
 
-		query := `UPDATE users SET username = ?, email = ?, is_logged_in = ?, administrator = ?, password_hash = ? WHERE id = ?`
-		_, err = scheduler.database.Exec(query, username, email, isLoggedIn, administrator, string(hashedPassword), userID)
+		query := `UPDATE users SET username = ?, email = ?, is_logged_in = ?, administrator = ?, password_hash = ?, department_id = ? WHERE id = ?`
+		_, err = scheduler.database.Exec(query, username, email, isLoggedIn, administrator, string(hashedPassword), departmentID, userID)
 		return err
 	} else {
 		// Update without changing password
-		query := `UPDATE users SET username = ?, email = ?, is_logged_in = ?, administrator = ? WHERE id = ?`
-		_, err := scheduler.database.Exec(query, username, email, isLoggedIn, administrator, userID)
+		query := `UPDATE users SET username = ?, email = ?, is_logged_in = ?, administrator = ?, department_id = ? WHERE id = ?`
+		_, err := scheduler.database.Exec(query, username, email, isLoggedIn, administrator, departmentID, userID)
 		return err
 	}
 }
