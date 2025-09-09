@@ -359,7 +359,7 @@
                                 {{$course := .}}
                                 {{range $.Instructors}}
                                 <option value="{{.ID}}" {{if eq .ID $course.InstructorID}}selected{{end}}>
-                                    {{.FirstName}} {{.LastName}}
+                                    {{.LastName}}, {{.FirstName}}
                                 </option>
                                 {{end}}
                             </select>

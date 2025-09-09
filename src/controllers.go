@@ -197,7 +197,8 @@ func (scheduler *wmu_scheduler) SignupUserGin(c *gin.Context) {
 	}
 
 	// Use email as username since that's what the database expects
-	err := scheduler.AddUser(username, email, password)
+	// Assign new users to Computer Science department (ID 1) by default
+	err := scheduler.AddUser(username, email, password, 1)
 	if err != nil {
 		// Check for specific database errors
 		if strings.Contains(err.Error(), "Duplicate entry") {
@@ -313,6 +314,23 @@ func (scheduler *wmu_scheduler) RenderCoursesPageGin(c *gin.Context) {
 		return
 	}
 
+	// Check if user has access to this schedule
+	hasAccess, err := scheduler.CheckUserAccessToSchedule(user, id)
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
+			"Error": "Error checking schedule access: " + err.Error(),
+			"User":  user,
+		})
+		return
+	}
+	if !hasAccess {
+		c.HTML(http.StatusForbidden, "error.html", gin.H{
+			"Error": "Access denied. You can only view schedules from your department.",
+			"User":  user,
+		})
+		return
+	}
+
 	// Fetch courses from the database or service
 	courses, err := scheduler.GetActiveCoursesForSchedule(id)
 	if err != nil {
@@ -341,8 +359,36 @@ func (scheduler *wmu_scheduler) RenderCoursesPageGin(c *gin.Context) {
 		return
 	}
 
-	// Fetch additional data needed for dropdowns
-	instructors, err := scheduler.GetAllInstructors()
+	// Get the schedule to determine its department
+	schedule, err := scheduler.GetScheduleByID(id)
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
+			"Error": "Error fetching schedule details: " + err.Error(),
+			"User":  user,
+		})
+		return
+	}
+	if schedule == nil {
+		c.HTML(http.StatusNotFound, "error.html", gin.H{
+			"Error": "Schedule not found",
+			"User":  user,
+		})
+		return
+	}
+
+	// Get department ID for the schedule
+	var scheduleDepartmentID int
+	err = scheduler.database.QueryRow("SELECT department_id FROM schedules WHERE id = ?", id).Scan(&scheduleDepartmentID)
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
+			"Error": "Error fetching schedule department: " + err.Error(),
+			"User":  user,
+		})
+		return
+	}
+
+	// Fetch instructors from the same department as the schedule
+	instructors, err := scheduler.GetInstructorsByDepartment(scheduleDepartmentID)
 	if err != nil {
 		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
 			"Error": "Error fetching instructors: " + err.Error(),
@@ -696,8 +742,36 @@ func (scheduler *wmu_scheduler) RenderAddCoursePageGin(c *gin.Context) {
 		return
 	}
 
-	// Get Instructors, Timeslots, and Rooms
-	instructors, err := scheduler.GetAllInstructors()
+	// Get schedule to determine its department
+	schedule, err := scheduler.GetScheduleByID(id)
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
+			"Error": "Error fetching schedule details: " + err.Error(),
+			"User":  user,
+		})
+		return
+	}
+	if schedule == nil {
+		c.HTML(http.StatusNotFound, "error.html", gin.H{
+			"Error": "Schedule not found",
+			"User":  user,
+		})
+		return
+	}
+
+	// Get department ID for the schedule
+	var scheduleDepartmentID int
+	err = scheduler.database.QueryRow("SELECT department_id FROM schedules WHERE id = ?", id).Scan(&scheduleDepartmentID)
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
+			"Error": "Error fetching schedule department: " + err.Error(),
+			"User":  user,
+		})
+		return
+	}
+
+	// Get Instructors from the same department as the schedule, Timeslots, and Rooms
+	instructors, err := scheduler.GetInstructorsByDepartment(scheduleDepartmentID)
 	if err != nil {
 		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
 			"Error": "Error fetching instructors: " + err.Error(),
@@ -958,8 +1032,13 @@ func (scheduler *wmu_scheduler) RenderHomePageGin(c *gin.Context) {
 	session.Delete("error")
 	session.Save()
 
-	// Fetch schedule data
-	schedules, err := scheduler.GetAllSchedules()
+	// Fetch schedule data - administrators see all schedules, regular users see only their department's schedules
+	var schedules []Schedule
+	if user.Administrator {
+		schedules, err = scheduler.GetAllSchedules()
+	} else {
+		schedules, err = scheduler.GetSchedulesByDepartment(user.DepartmentID)
+	}
 	if err != nil {
 		c.HTML(http.StatusInternalServerError, "home.html", gin.H{
 			"Error": "Error loading schedules: " + err.Error(),
@@ -1147,7 +1226,15 @@ func (scheduler *wmu_scheduler) RenderInstructorsPageGin(c *gin.Context) {
 		return
 	}
 
-	instructors, err := scheduler.GetAllInstructors()
+	// Get instructors based on user role and department
+	var instructors []Instructor
+	if user.Administrator {
+		// Administrators can see all instructors
+		instructors, err = scheduler.GetAllInstructors()
+	} else {
+		// Regular users can only see instructors from their department
+		instructors, err = scheduler.GetInstructorsByDepartment(user.DepartmentID)
+	}
 	if err != nil {
 		c.HTML(http.StatusInternalServerError, "instructors", gin.H{
 			"Error": "Error loading instructors: " + err.Error(),
@@ -1329,10 +1416,21 @@ func (scheduler *wmu_scheduler) RenderUsersPageGin(c *gin.Context) {
 		return
 	}
 
+	// Get all departments for the dropdown
+	departments, err := scheduler.GetAllDepartments()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "users", gin.H{
+			"Error": "Error loading departments: " + err.Error(),
+			"User":  user,
+		})
+		return
+	}
+
 	data := gin.H{
-		"Users":     users,
-		"User":      user,
-		"CSRFToken": csrf.GetToken(c),
+		"Users":       users,
+		"User":        user,
+		"CSRFToken":   csrf.GetToken(c),
+		"Departments": departments,
 	}
 
 	if successMsg != nil {
@@ -1346,7 +1444,7 @@ func (scheduler *wmu_scheduler) RenderUsersPageGin(c *gin.Context) {
 }
 
 func (scheduler *wmu_scheduler) DeleteScheduleGin(c *gin.Context) {
-	_, err := scheduler.getCurrentUser(c)
+	user, err := scheduler.getCurrentUser(c)
 	if err != nil {
 		c.Redirect(http.StatusFound, "/scheduler/login")
 		return
@@ -1367,6 +1465,21 @@ func (scheduler *wmu_scheduler) DeleteScheduleGin(c *gin.Context) {
 	id, err := strconv.Atoi(scheduleID)
 	if err != nil {
 		session.Set("error", "Invalid schedule ID")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler")
+		return
+	}
+
+	// Check if user has access to this schedule
+	hasAccess, err := scheduler.CheckUserAccessToSchedule(user, id)
+	if err != nil {
+		session.Set("error", "Error checking schedule access: "+err.Error())
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler")
+		return
+	}
+	if !hasAccess {
+		session.Set("error", "Access denied. You can only delete schedules from your department.")
 		session.Save()
 		c.Redirect(http.StatusFound, "/scheduler")
 		return
@@ -2198,7 +2311,7 @@ func (scheduler *wmu_scheduler) AddTimeslotGin(c *gin.Context) {
 
 // SaveInstructorsGin handles saving instructor changes and bulk deletion
 func (scheduler *wmu_scheduler) SaveInstructorsGin(c *gin.Context) {
-	_, err := scheduler.getCurrentUser(c)
+	user, err := scheduler.getCurrentUser(c)
 	if err != nil {
 		c.Redirect(http.StatusFound, "/scheduler/login")
 		return
@@ -2226,6 +2339,31 @@ func (scheduler *wmu_scheduler) SaveInstructorsGin(c *gin.Context) {
 			if err != nil {
 				errors = append(errors, fmt.Sprintf("Invalid instructor ID: %s", instructorIDStr))
 				continue
+			}
+
+			// For regular users, validate they can only delete instructors from their own department
+			if !user.Administrator {
+				// Get the instructor details to check department
+				instructor, err := scheduler.GetInstructorByID(instructorID)
+				if err != nil {
+					errors = append(errors, fmt.Sprintf("Error validating instructor ID %d: %v", instructorID, err))
+					continue
+				}
+				if instructor == nil {
+					errors = append(errors, fmt.Sprintf("Instructor ID %d not found", instructorID))
+					continue
+				}
+
+				userDept, err := scheduler.GetDepartmentByID(user.DepartmentID)
+				if err != nil {
+					errors = append(errors, fmt.Sprintf("Error validating department access for instructor ID %d: %v", instructorID, err))
+					continue
+				}
+
+				if userDept == nil || instructor.Department != userDept.Name {
+					errors = append(errors, fmt.Sprintf("Access denied for instructor ID %d. You can only delete instructors from your own department.", instructorID))
+					continue
+				}
 			}
 
 			err = scheduler.DeleteInstructor(instructorID)
@@ -2294,6 +2432,25 @@ func (scheduler *wmu_scheduler) SaveInstructorsGin(c *gin.Context) {
 			continue // Skip invalid IDs
 		}
 
+		// For regular users, validate they can only update instructors in their own department
+		if !user.Administrator {
+			userDept, err := scheduler.GetDepartmentByID(user.DepartmentID)
+			if err != nil {
+				session.Set("error", "Error validating department access: "+err.Error())
+				session.Save()
+				c.Redirect(http.StatusFound, "/scheduler/instructors")
+				return
+			}
+
+			// Check if the instructor belongs to a department the user can access
+			if userDept == nil || instructor.Department != userDept.Name {
+				session.Set("error", "Access denied. You can only update instructors from your own department.")
+				session.Save()
+				c.Redirect(http.StatusFound, "/scheduler/instructors")
+				return
+			}
+		}
+
 		err = scheduler.UpdateInstructor(instructorID, instructor.LastName, instructor.FirstName, instructor.Department, instructor.Status)
 		if err != nil {
 			session.Set("error", fmt.Sprintf("Error updating instructor %s %s: %v", instructor.FirstName, instructor.LastName, err))
@@ -2317,7 +2474,23 @@ func (scheduler *wmu_scheduler) RenderAddInstructorPageGin(c *gin.Context) {
 		return
 	}
 
-	departments, err := scheduler.GetAllDepartments()
+	// Get departments based on user role
+	var departments []Department
+	if user.Administrator {
+		// Administrators can add instructors to any department
+		departments, err = scheduler.GetAllDepartments()
+	} else {
+		// Regular users can only add instructors to their own department
+		userDept, deptErr := scheduler.GetDepartmentByID(user.DepartmentID)
+		if deptErr != nil {
+			c.HTML(http.StatusInternalServerError, "add_instructor", gin.H{
+				"Error": "Error loading user department: " + deptErr.Error(),
+				"User":  user,
+			})
+			return
+		}
+		departments = []Department{*userDept}
+	}
 	if err != nil {
 		c.HTML(http.StatusInternalServerError, "add_instructor", gin.H{
 			"Error": "Error loading departments: " + err.Error(),
@@ -2344,7 +2517,7 @@ func (scheduler *wmu_scheduler) RenderAddInstructorPageGin(c *gin.Context) {
 
 // AddInstructorGin handles adding a new instructor
 func (scheduler *wmu_scheduler) AddInstructorGin(c *gin.Context) {
-	_, err := scheduler.getCurrentUser(c)
+	user, err := scheduler.getCurrentUser(c)
 	if err != nil {
 		c.Redirect(http.StatusFound, "/scheduler/login")
 		return
@@ -2364,6 +2537,23 @@ func (scheduler *wmu_scheduler) AddInstructorGin(c *gin.Context) {
 		session.Save()
 		c.Redirect(http.StatusFound, "/scheduler/add_instructor")
 		return
+	}
+
+	// For regular users, validate they can only add instructors to their own department
+	if !user.Administrator {
+		userDept, err := scheduler.GetDepartmentByID(user.DepartmentID)
+		if err != nil {
+			session.Set("error", "Error validating department access: "+err.Error())
+			session.Save()
+			c.Redirect(http.StatusFound, "/scheduler/add_instructor")
+			return
+		}
+		if userDept == nil || userDept.Name != department {
+			session.Set("error", "Access denied. You can only add instructors to your own department.")
+			session.Save()
+			c.Redirect(http.StatusFound, "/scheduler/add_instructor")
+			return
+		}
 	}
 
 	// Add the instructor
@@ -2424,10 +2614,21 @@ func (scheduler *wmu_scheduler) renderAddUserFormGin(c *gin.Context, errorMsg, s
 	}
 	session.Save()
 
+	// Get all departments for the dropdown
+	departments, err := scheduler.GetAllDepartments()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
+			"Error": "Error loading departments: " + err.Error(),
+			"User":  user,
+		})
+		return
+	}
+
 	data := gin.H{
-		"User":      user,
-		"CSRFToken": csrf.GetToken(c),
-		"Values":    values,
+		"User":        user,
+		"CSRFToken":   csrf.GetToken(c),
+		"Values":      values,
+		"Departments": departments,
 	}
 
 	if successMsg != "" {
@@ -2463,11 +2664,30 @@ func (scheduler *wmu_scheduler) AddUserGin(c *gin.Context) {
 	password := c.PostForm("password")
 	confirmPassword := c.PostForm("confirm_password")
 	administrator := c.PostForm("administrator") == "true"
+	departmentIDStr := c.PostForm("department_id")
+
+	// Parse department ID
+	departmentID := 0
+	if departmentIDStr != "" {
+		if id, err := strconv.Atoi(departmentIDStr); err == nil && id > 0 {
+			departmentID = id
+		}
+	}
+
+	// Validate department is selected
+	if departmentID <= 0 {
+		session := sessions.Default(c)
+		session.Set("error", "Department is required")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/users")
+		return
+	}
 
 	// Preserve form values for re-display on error
 	values := map[string]string{
-		"username": username,
-		"email":    email,
+		"username":      username,
+		"email":         email,
+		"department_id": departmentIDStr,
 	}
 	if administrator {
 		values["administrator"] = "true"
@@ -2486,7 +2706,7 @@ func (scheduler *wmu_scheduler) AddUserGin(c *gin.Context) {
 	}
 
 	// Add the user
-	err = scheduler.AddUser(username, email, password)
+	err = scheduler.AddUser(username, email, password, departmentID)
 	if err != nil {
 		// Check for specific database errors
 		if strings.Contains(err.Error(), "Duplicate entry") {
@@ -2508,7 +2728,7 @@ func (scheduler *wmu_scheduler) AddUserGin(c *gin.Context) {
 		// Get the newly created user to get their ID
 		newUser, err := scheduler.GetUserByUsername(username)
 		if err == nil && newUser != nil {
-			err = scheduler.UpdateUserByID(newUser.ID, username, email, false, true, "")
+			err = scheduler.UpdateUserByID(newUser.ID, username, email, false, true, "", -1)
 			if err != nil {
 				session := sessions.Default(c)
 				session.Set("error", "User created but failed to set administrator privileges")
@@ -3234,14 +3454,21 @@ func (scheduler *wmu_scheduler) SaveUsersGin(c *gin.Context) {
 		username := getStringFromInterface(userData["username"])
 		email := getStringFromInterface(userData["email"])
 		newPassword := getStringFromInterface(userData["newPassword"])
+		isLoggedIn := userData["isLoggedIn"] == true || userData["isLoggedIn"] == "true"
 		administrator := userData["administrator"] == true || userData["administrator"] == "true"
 
-		if id <= 0 || username == "" || email == "" {
+		// Parse department_id (required)
+		departmentID := 0
+		if deptIDInterface, exists := userData["departmentID"]; exists && deptIDInterface != nil {
+			departmentID = getIntFromInterface(deptIDInterface)
+		}
+
+		if id <= 0 || username == "" || email == "" || departmentID <= 0 {
 			errorCount++
 			continue
 		}
 
-		err = scheduler.UpdateUserByID(id, username, email, false, administrator, newPassword)
+		err = scheduler.UpdateUserByID(id, username, email, isLoggedIn, administrator, newPassword, departmentID)
 		if err != nil {
 			errorCount++
 			continue

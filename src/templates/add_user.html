@@ -202,14 +202,23 @@
                 </div>
                 
                 <div class="form-group">
+                    <label for="department_id">Department:</label>
+                    <select id="department_id" name="department_id" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; box-sizing: border-box;" required>
+                        <option value="">Select a Department</option>
+                        {{range .Departments}}
+                        <option value="{{.ID}}" {{if eq (printf "%d" .ID) $.Values.department_id}}selected{{end}}>{{.Name}}</option>
+                        {{end}}
+                    </select>
+                </div>
+                
+                <div class="form-group">
                     <label for="password">Password:</label>
                     <div class="password-container">
                         <input type="password" id="password" name="password" required oninput="validatePasswordMatch()">
                         <span class="password-toggle" id="password-toggle" onclick="togglePassword('password', 'password-toggle')">👁️</span>
                     </div>
                     <div class="password-requirements">
-                        Password must be at least 15 characters long and contain at least one uppercase letter, 
-                        one lowercase letter, one number, and one special character.
+                        Password must be at least 8 characters long and contain at least one number and one special character.
                     </div>
                 </div>
                 

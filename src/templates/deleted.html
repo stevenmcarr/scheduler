@@ -313,7 +313,7 @@
                             <td>{{if .Lab}}✓{{else}}{{end}}</td>
                             <td>
                                 {{range $.Instructors}}
-                                    {{if eq .ID $.InstructorID}}{{.FirstName}} {{.LastName}}{{end}}
+                                    {{if eq .ID $.InstructorID}}{{.LastName}}, {{.FirstName}}{{end}}
                                 {{end}}
                             </td>
                             <td>
