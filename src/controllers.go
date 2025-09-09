@@ -299,12 +299,9 @@ func (scheduler *wmu_scheduler) RenderCoursesPageGin(c *gin.Context) {
 			return
 		}
 	} else {
-		_, err = scheduler.getCurrentSchedule(c)
-		if err != nil {
-			session := sessions.Default(c)
-			session.Set("schedule_id", scheduleID)
-			session.Save()
-		}
+		session := sessions.Default(c)
+		session.Set("schedule_id", scheduleID)
+		session.Save()
 	}
 
 	id, err := strconv.Atoi(scheduleID)
@@ -392,6 +389,128 @@ func (scheduler *wmu_scheduler) RenderCoursesPageGin(c *gin.Context) {
 	}
 
 	c.HTML(http.StatusOK, "courses", data)
+}
+
+// RenderDeletedCoursesPageGin renders the deleted courses page
+func (scheduler *wmu_scheduler) RenderDeletedCoursesPageGin(c *gin.Context) {
+	user, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	// Get any error or success messages from session
+	session := sessions.Default(c)
+	successMsg := session.Get("success")
+	errorMsg := session.Get("error")
+	session.Delete("success")
+	session.Delete("error")
+	session.Save()
+
+	// Get schedule_id from the URL query parameters or session
+	scheduleID := c.Query("schedule_id")
+	if scheduleID == "" {
+		scheduleID, err = scheduler.getCurrentSchedule(c)
+		if err != nil {
+			c.HTML(http.StatusBadRequest, "error.html", gin.H{
+				"Error": "No schedule currently selected. Please select a schedule.",
+				"User":  user,
+			})
+			return
+		}
+	}
+
+	id, err := strconv.Atoi(scheduleID)
+	if err != nil {
+		c.HTML(http.StatusBadRequest, "error.html", gin.H{
+			"Error": "Invalid schedule_id parameter",
+			"User":  user,
+		})
+		return
+	}
+
+	// Fetch deleted courses from the database
+	courses, err := scheduler.GetDeletedCoursesForSchedule(id)
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
+			"Error": "Error fetching deleted courses: " + err.Error(),
+			"User":  user,
+		})
+		return
+	}
+
+	prefixes, err := scheduler.GetPrefixesForSchedule(id)
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
+			"Error": "Error fetching prefixes: " + err.Error(),
+			"User":  user,
+		})
+		return
+	}
+
+	scheduleName, err := scheduler.GetScheduleName(id)
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
+			"Error": "Error fetching schedule name: " + err.Error(),
+			"User":  user,
+		})
+		return
+	}
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
+			"Error": "Error fetching prefixes: " + err.Error(),
+			"User":  user,
+		})
+		return
+	}
+
+	instructors, err := scheduler.GetAllInstructors()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
+			"Error": "Error fetching instructors: " + err.Error(),
+			"User":  user,
+		})
+		return
+	}
+
+	rooms, err := scheduler.GetAllRooms()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
+			"Error": "Error fetching rooms: " + err.Error(),
+			"User":  user,
+		})
+		return
+	}
+
+	timeSlots, err := scheduler.GetAllTimeSlots()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
+			"Error": "Error fetching time slots: " + err.Error(),
+			"User":  user,
+		})
+		return
+	}
+
+	data := gin.H{
+		"User":         user,
+		"ScheduleName": scheduleName,
+		"ScheduleID":   id,
+		"Prefixes":     prefixes,
+		"Courses":      courses,
+		"Instructors":  instructors,
+		"Rooms":        rooms,
+		"TimeSlots":    timeSlots,
+		"CSRFToken":    csrf.GetToken(c),
+	}
+
+	if successMsg != nil {
+		data["Success"] = successMsg
+	}
+	if errorMsg != nil {
+		data["Error"] = errorMsg
+	}
+
+	c.HTML(http.StatusOK, "deleted", data)
 }
 
 // SaveCoursesGin handles POST requests to save course changes

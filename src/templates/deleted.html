@@ -1,0 +1,560 @@
+{{define "deleted"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Deleted Courses - WMU Course Scheduler</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+        .content { margin: 24px; }
+        
+        /* Table container with scrollbars */
+        .table-container {
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            overflow: auto;
+            max-height: 420px; /* Approximately 10 rows (42px per row) */
+            margin-bottom: 24px;
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin: 0;
+            min-width: 1400px; /* Ensures horizontal scrollbar when needed */
+        }
+        
+        th, td { 
+            border: 1px solid #ccc; 
+            padding: 8px; 
+            text-align: left;
+            white-space: nowrap; /* Prevents text wrapping */
+            vertical-align: top;
+        }
+        
+        th { 
+            background-color: #8B4513;
+            color: white;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            border-bottom: 2px solid #654321;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        
+        th.sortable {
+            cursor: pointer;
+            user-select: none;
+        }
+        th.sortable:after {
+            content: ' ⇅';
+            font-size: 0.8em;
+            color: #ccc;
+        }
+        
+        /* Column widths */
+        th:nth-child(1), td:nth-child(1) { width: 80px; } /* CRN */
+        th:nth-child(2), td:nth-child(2) { width: 60px; } /* Section */
+        th:nth-child(3), td:nth-child(3) { width: 60px; } /* Prefix */
+        th:nth-child(4), td:nth-child(4) { width: 80px; } /* Course # */
+        th:nth-child(5), td:nth-child(5) { width: 200px; white-space: normal; } /* Title */
+        th:nth-child(6), td:nth-child(6) { width: 60px; } /* Credits */
+        th:nth-child(7), td:nth-child(7) { width: 60px; } /* Contact */
+        th:nth-child(8), td:nth-child(8) { width: 60px; } /* Cap */
+        th:nth-child(9), td:nth-child(9) { width: 50px; } /* Appr */
+        th:nth-child(10), td:nth-child(10) { width: 50px; } /* Lab */
+        th:nth-child(11), td:nth-child(11) { width: 150px; } /* Instructor */
+        th:nth-child(12), td:nth-child(12) { width: 120px; } /* Time */
+        th:nth-child(13), td:nth-child(13) { width: 100px; } /* Room */
+        th:nth-child(14), td:nth-child(14) { width: 80px; } /* Mode */
+        th:nth-child(15), td:nth-child(15) { width: 100px; } /* Status */
+        th:nth-child(16), td:nth-child(16) { width: 150px; white-space: normal; } /* Comment */
+        
+        /* Zebra striping for better readability */
+        tbody tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        
+        tbody tr:hover {
+            background-color: #e8f4f8;
+        }
+        
+        /* Deleted row highlighting */
+        tr.deleted {
+            background-color: #ffcccc !important;
+        }
+        
+        /* Modified row highlighting */
+        tr.modified {
+            background-color: #fff3cd !important;
+        }
+        
+        /* Dropdown styling */
+        select {
+            width: 100%;
+            padding: 4px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        
+        /* Checkbox styling */
+        input[type="checkbox"] {
+            transform: scale(1.2);
+        }
+        
+        /* Input field styling */
+        input[type="text"] {
+            width: 100%;
+            padding: 4px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 12px;
+            box-sizing: border-box;
+        }
+        
+        /* Filter section styling */
+        .filter-section {
+            background-color: #f5f5f5;
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+        }
+        
+        .filter-row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        
+        .filter-group label {
+            font-weight: bold;
+            font-size: 12px;
+            color: #333;
+        }
+        
+        .filter-group input {
+            width: 100px;
+            padding: 6px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        
+        /* Button styling */
+        .button-row {
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+        
+        button {
+            padding: 10px 20px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            background-color: #8B4513;
+            border-color: #8B4513;
+            color: white;
+            transition: background-color 0.3s;
+        }
+        
+        button:hover {
+            background-color: #654321;
+        }
+        
+        /* Page header styling */
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .page-header h1 {
+            margin: 0;
+            color: #8B4513;
+        }
+        
+        .back-link {
+            color: #8B4513;
+            text-decoration: none;
+            font-size: 14px;
+            padding: 8px 16px;
+            border: 1px solid #8B4513;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+        }
+        
+        .back-link:hover {
+            background-color: #8B4513;
+            color: white;
+        }
+
+        /* Alert styling */
+        .alert {
+            padding: 12px;
+            margin-bottom: 20px;
+            border: 1px solid transparent;
+            border-radius: 4px;
+        }
+
+        .alert-success {
+            background-color: #d4edda;
+            border-color: #c3e6cb;
+            color: #155724;
+        }
+
+        .alert-error {
+            background-color: #f8d7da;
+            border-color: #f5c6cb;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    {{template "navbar" .}}
+    <div class="content">
+        <div class="page-header">
+            <h1>Deleted Courses - {{.ScheduleName}}</h1>
+            <a href="/scheduler/courses?schedule_id={{.ScheduleID}}" class="back-link">← Back to Active Courses</a>
+        </div>
+        
+        {{if .Success}}
+        <div class="alert alert-success">
+            {{.Success}}
+        </div>
+        {{end}}
+
+        {{if .Error}}
+        <div class="alert alert-error">
+            {{.Error}}
+        </div>
+        {{end}}
+
+        <!-- Filter Section -->
+        <div class="filter-section">
+            <div class="filter-row">
+                <div class="filter-group">
+                    <label for="filter-crn">CRN:</label>
+                    <input type="text" id="filter-crn" placeholder="Filter by CRN">
+                </div>
+                <div class="filter-group">
+                    <label for="filter-prefix">Prefix:</label>
+                    <input type="text" id="filter-prefix" placeholder="Filter by prefix">
+                </div>
+                <div class="filter-group">
+                    <label for="filter-course-number">Course #:</label>
+                    <input type="text" id="filter-course-number" placeholder="Filter by course number">
+                </div>
+                <div class="filter-group">
+                    <label for="filter-title">Title:</label>
+                    <input type="text" id="filter-title" placeholder="Filter by title">
+                </div>
+                <div class="filter-group">
+                    <label for="filter-instructor">Instructor:</label>
+                    <input type="text" id="filter-instructor" placeholder="Filter by instructor">
+                </div>
+            </div>
+        </div>
+
+        <!-- Courses Table -->
+        <div class="table-container">
+            <form id="coursesForm">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                <input type="hidden" name="schedule_id" value="{{.ScheduleID}}">
+                <table id="courses-table">
+                    <thead>
+                        <tr>
+                            <th class="sortable" onclick="sortTable(0)">CRN</th>
+                            <th class="sortable" onclick="sortTable(1)">Section</th>
+                            <th class="sortable" onclick="sortTable(2)">Prefix</th>
+                            <th class="sortable" onclick="sortTable(3)">Course #</th>
+                            <th class="sortable" onclick="sortTable(4)">Title</th>
+                            <th class="sortable" onclick="sortTable(5)">Credits</th>
+                            <th class="sortable" onclick="sortTable(6)">Contact</th>
+                            <th class="sortable" onclick="sortTable(7)">Cap</th>
+                            <th>Appr</th>
+                            <th>Lab</th>
+                            <th class="sortable" onclick="sortTable(10)">Instructor</th>
+                            <th class="sortable" onclick="sortTable(11)">Time</th>
+                            <th class="sortable" onclick="sortTable(12)">Room</th>
+                            <th class="sortable" onclick="sortTable(13)">Mode</th>
+                            <th class="sortable" onclick="sortTable(14)">Status</th>
+                            <th>Comment</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .Courses}}
+                        <tr class="course-row deleted" data-course-id="{{.ID}}" data-instructor-id="{{.InstructorID}}" data-timeslot-id="{{.TimeSlotID}}" data-room-id="{{.RoomID}}">>
+                            <td>{{.CRN}}</td>
+                            <td>{{.Section}}</td>
+                            <td>{{.Prefix}}</td>
+                            <td>{{.CourseNumber}}</td>
+                            <td>{{.Title}}</td>
+                            <td>{{.Credits}}</td>
+                            <td>{{.Contact}}</td>
+                            <td>{{.Cap}}</td>
+                            <td>{{if .Approval}}✓{{else}}{{end}}</td>
+                            <td>{{if .Lab}}✓{{else}}{{end}}</td>
+                            <td>
+                                {{range $.Instructors}}
+                                    {{if eq .ID $.InstructorID}}{{.FirstName}} {{.LastName}}{{end}}
+                                {{end}}
+                            </td>
+                            <td>
+                                {{range $.TimeSlots}}
+                                    {{if eq .ID $.TimeSlotID}}{{.StartTime}} - {{.EndTime}} {{if .M}}M{{end}}{{if .T}}T{{end}}{{if .W}}W{{end}}{{if .R}}R{{end}}{{if .F}}F{{end}}{{end}}
+                                {{end}}
+                            </td>
+                            <td>
+                                {{range $.Rooms}}
+                                    {{if eq .ID $.RoomID}}{{.Building}} {{.RoomNumber}}{{end}}
+                                {{end}}
+                            </td>
+                            <td>{{.Mode}}</td>
+                            <td>
+                                <select name="status">
+                                    <option value="Scheduled" {{if eq .Status "Scheduled"}}selected{{end}}>Scheduled</option>
+                                    <option value="Added" {{if eq .Status "Added"}}selected{{end}}>Added</option>
+                                    <option value="Removed" {{if eq .Status "Removed"}}selected{{end}}>Removed</option>
+                                    <option value="Updated" {{if eq .Status "Updated"}}selected{{end}}>Updated</option>
+                                    <option value="Deleted" {{if eq .Status "Deleted"}}selected{{end}}>Deleted</option>
+                                </select>
+                            </td>
+                            <td>
+                                <input type="text" value="{{.Comment}}" name="comment" placeholder="Add comment...">
+                            </td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </form>
+        </div>
+        
+        <div class="button-row">
+            <button type="button" onclick="saveAllChanges()">Save Changes</button>
+        </div>
+    </div>
+    
+    <script>
+        // Filter functionality
+        function initializeFilters() {
+            const filterInputs = [
+                'filter-crn',
+                'filter-prefix',
+                'filter-course-number', 
+                'filter-title',
+                'filter-instructor'
+            ];
+            
+            filterInputs.forEach(filterId => {
+                const input = document.getElementById(filterId);
+                if (input) {
+                    input.addEventListener('input', filterTable);
+                }
+            });
+        }
+
+        function filterTable() {
+            const crnFilter = document.getElementById('filter-crn').value.toLowerCase();
+            const prefixFilter = document.getElementById('filter-prefix').value.toLowerCase();
+            const courseNumberFilter = document.getElementById('filter-course-number').value.toLowerCase();
+            const titleFilter = document.getElementById('filter-title').value.toLowerCase();
+            const instructorFilter = document.getElementById('filter-instructor').value.toLowerCase();
+
+            const table = document.getElementById('courses-table');
+            const rows = table.getElementsByTagName('tr');
+
+            for (let i = 1; i < rows.length; i++) { // Start from 1 to skip header
+                const row = rows[i];
+                const cells = row.getElementsByTagName('td');
+                
+                if (cells.length > 0) {
+                    const crn = cells[0].textContent.toLowerCase();
+                    const prefix = cells[2].textContent.toLowerCase();
+                    const courseNumber = cells[3].textContent.toLowerCase();
+                    const title = cells[4].textContent.toLowerCase();
+                    const instructor = cells[10].textContent.toLowerCase();
+
+                    const crnMatch = crn.includes(crnFilter);
+                    const prefixMatch = prefix.includes(prefixFilter);
+                    const courseNumberMatch = courseNumber.includes(courseNumberFilter);
+                    const titleMatch = title.includes(titleFilter);
+                    const instructorMatch = instructor.includes(instructorFilter);
+
+                    if (crnMatch && prefixMatch && courseNumberMatch && titleMatch && instructorMatch) {
+                        row.style.display = '';
+                    } else {
+                        row.style.display = 'none';
+                    }
+                }
+            }
+        }
+
+        // Sort functionality
+        function sortTable(columnIndex) {
+            const table = document.getElementById('courses-table');
+            const rows = Array.from(table.rows).slice(1); // Skip header row
+            const isAscending = table.getAttribute('data-sort-order') !== 'asc';
+            
+            rows.sort((a, b) => {
+                const aValue = a.cells[columnIndex].textContent.trim().toLowerCase();
+                const bValue = b.cells[columnIndex].textContent.trim().toLowerCase();
+                
+                // Try to parse as numbers first
+                const aNum = parseFloat(aValue);
+                const bNum = parseFloat(bValue);
+                
+                if (!isNaN(aNum) && !isNaN(bNum)) {
+                    return isAscending ? aNum - bNum : bNum - aNum;
+                } else {
+                    return isAscending ? 
+                        aValue.localeCompare(bValue) : 
+                        bValue.localeCompare(aValue);
+                }
+            });
+            
+            const tbody = table.querySelector('tbody');
+            rows.forEach(row => tbody.appendChild(row));
+            
+            table.setAttribute('data-sort-order', isAscending ? 'asc' : 'desc');
+        }
+
+        // Track changes
+        function trackChanges() {
+            const form = document.getElementById('coursesForm');
+            const inputs = form.querySelectorAll('select, input[type="text"]');
+            
+            inputs.forEach(input => {
+                input.addEventListener('change', function() {
+                    const row = this.closest('tr');
+                    if (row && !row.classList.contains('modified')) {
+                        row.classList.add('modified');
+                    }
+                });
+            });
+        }
+
+        // Save changes
+        function saveAllChanges() {
+            const form = document.getElementById('coursesForm');
+            const modifiedRows = form.querySelectorAll('tr.modified');
+            
+            if (modifiedRows.length === 0) {
+                alert('No changes to save.');
+                return;
+            }
+            
+            // Build courses array with only the fields we're updating
+            const courses = [];
+            const allRows = form.querySelectorAll('tr.course-row');
+            
+            allRows.forEach(row => {
+                const courseId = row.getAttribute('data-course-id');
+                const statusSelect = row.querySelector('select[name="status"]');
+                const commentInput = row.querySelector('input[name="comment"]');
+                
+                // Get all the static course data from the table cells
+                const cells = row.getElementsByTagName('td');
+                
+                const courseData = {
+                    id: courseId,
+                    crn: cells[0].textContent.trim(),
+                    section: cells[1].textContent.trim(),
+                    prefix: cells[2].textContent.trim(),
+                    course_number: cells[3].textContent.trim(),
+                    title: cells[4].textContent.trim(),
+                    credits: cells[5].textContent.trim(),
+                    contact: cells[6].textContent.trim(),
+                    cap: cells[7].textContent.trim(),
+                    approval: cells[8].textContent.trim() === '✓' ? 1 : 0,
+                    lab: cells[9].textContent.trim() === '✓' ? 1 : 0,
+                    // For instructor, timeslot, and room - we'll pass the current IDs from the backend data
+                    instructor_id: getDataValue(row, 'instructor-id'),
+                    timeslot_id: getDataValue(row, 'timeslot-id'),
+                    room_id: getDataValue(row, 'room-id'),
+                    mode: cells[13].textContent.trim(),
+                    status: statusSelect.value,
+                    comment: commentInput.value
+                };
+                
+                courses.push(courseData);
+            });
+            
+            // Get CSRF token
+            const csrfToken = form.querySelector('input[name="csrf_token"]').value;
+            
+            // Create form data like courses.html does
+            const formData = new FormData();
+            formData.append('csrf_token', csrfToken);
+            formData.append('courses', JSON.stringify(courses));
+            
+            // Show loading state
+            const saveButton = event.target;
+            const originalText = saveButton.textContent;
+            saveButton.textContent = 'Saving...';
+            saveButton.disabled = true;
+            
+            // Send request to save changes
+            fetch('/scheduler/courses', {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-Token': csrfToken
+                },
+                body: formData
+            })
+            .then(response => {
+                if (response.ok) {
+                    return response.text();
+                } else {
+                    return response.text().then(errorText => {
+                        console.error('Server error response:', errorText);
+                        throw new Error(`Server returned ${response.status}: ${errorText}`);
+                    });
+                }
+            })
+            .then(data => {
+                // Redirect back to deleted courses page to show session success message
+                window.location.href = '/scheduler/deleted?schedule_id=' + form.querySelector('input[name="schedule_id"]').value;
+            })
+            .catch(error => {
+                console.error('Error saving changes:', error);
+                // Redirect back to deleted courses page to show session error message  
+                window.location.href = '/scheduler/deleted?schedule_id=' + form.querySelector('input[name="schedule_id"]').value;
+            })
+            .finally(() => {
+                // Restore button state
+                saveButton.textContent = originalText;
+                saveButton.disabled = false;
+            });
+        }
+        
+        // Helper function to get data attribute values
+        function getDataValue(row, attribute) {
+            return row.getAttribute('data-' + attribute) || null;
+        }
+
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeFilters();
+            trackChanges();
+        });
+    </script>
+</body>
+</html>
+{{end}}
