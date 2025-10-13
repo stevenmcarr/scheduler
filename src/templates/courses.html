@@ -277,6 +277,17 @@
                     <label for="filter-instructor">Instructor</label>
                     <input type="text" id="filter-instructor" class="filter-input" placeholder="Filter by Instructor">
                 </div>
+                <div class="filter-group">
+                    <label for="filter-status">Status</label>
+                    <select id="filter-status" class="filter-input">
+                        <option value="">All Status</option>
+                        <option value="Scheduled">Scheduled</option>
+                        <option value="Added">Added</option>
+                        <option value="Updated">Updated</option>
+                        <option value="Removed">Removed</option>
+                        <option value="Deleted">Deleted</option>
+                    </select>
+                </div>
                 <button type="button" class="clear-filters-btn" onclick="clearAllFilters()">Clear Filters</button>
             </div>
         </div>
@@ -440,7 +451,8 @@
                 'filter-prefix',
                 'filter-course-number', 
                 'filter-title',
-                'filter-instructor'
+                'filter-instructor',
+                'filter-status'
             ];
             
             filterInputs.forEach(filterId => {
@@ -463,7 +475,8 @@
                 prefix: document.getElementById('filter-prefix').value.toLowerCase().trim(),
                 courseNumber: document.getElementById('filter-course-number').value.toLowerCase().trim(),
                 title: document.getElementById('filter-title').value.toLowerCase().trim(),
-                instructor: document.getElementById('filter-instructor').value.toLowerCase().trim()
+                instructor: document.getElementById('filter-instructor').value.toLowerCase().trim(),
+                status: document.getElementById('filter-status').value.toLowerCase().trim()
             };
             
             let visibleCount = 0;
@@ -487,13 +500,21 @@
                     instructor = instructorSelect.options[instructorSelect.selectedIndex].text.toLowerCase();
                 }
                 
+                // For status, get the selected option value
+                let status = '';
+                const statusSelect = cells[14].querySelector('select');
+                if (statusSelect) {
+                    status = statusSelect.value.toLowerCase();
+                }
+                
                 // Check if row matches all active filters
                 const matches = (
                     (!filters.crn || crn.includes(filters.crn)) &&
                     (!filters.prefix || cells[2].querySelector('select').value.toLowerCase().startsWith(filters.prefix)) &&
                     (!filters.courseNumber || courseNumber.includes(filters.courseNumber)) &&
                     (!filters.title || title.includes(filters.title)) &&
-                    (!filters.instructor || instructor.includes(filters.instructor))
+                    (!filters.instructor || instructor.includes(filters.instructor)) &&
+                    (!filters.status || status === filters.status)
                 );
                 
                 if (matches) {
@@ -533,6 +554,7 @@
             document.getElementById('filter-course-number').value = '';
             document.getElementById('filter-title').value = '';
             document.getElementById('filter-instructor').value = '';
+            document.getElementById('filter-status').value = '';
             
             // Show all rows
             const table = document.getElementById('courses-table');
