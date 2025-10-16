@@ -301,6 +301,15 @@ func (scheduler *wmu_scheduler) router() *gin.Engine {
 	r.POST("/scheduler/delete_schedule", func(c *gin.Context) {
 		scheduler.DeleteScheduleGin(c)
 	})
+
+	// Copy schedule routes
+	r.GET("/scheduler/copy_schedule", func(c *gin.Context) {
+		scheduler.RenderCopySchedulePageGin(c)
+	})
+	r.POST("/scheduler/copy_schedule", func(c *gin.Context) {
+		scheduler.CopyScheduleGin(c)
+	})
+
 	// Logout route
 	r.GET("/scheduler/logout", func(c *gin.Context) {
 		scheduler.LogoutUserGin(c)

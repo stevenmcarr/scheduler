@@ -5367,3 +5367,198 @@ func (scheduler *wmu_scheduler) DeletePrerequisiteGin(c *gin.Context) {
 
 	c.Redirect(http.StatusSeeOther, "/scheduler/prerequisites")
 }
+
+// RenderCopySchedulePageGin displays the copy schedule page
+func (scheduler *wmu_scheduler) RenderCopySchedulePageGin(c *gin.Context) {
+	user, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	session := sessions.Default(c)
+
+	// Get schedule ID from query parameter
+	scheduleIDStr := c.Query("schedule_id")
+	if scheduleIDStr == "" {
+		session.Set("error", "No schedule selected for copying")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler")
+		return
+	}
+
+	scheduleID, err := strconv.Atoi(scheduleIDStr)
+	if err != nil {
+		session.Set("error", "Invalid schedule ID")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler")
+		return
+	}
+
+	// Check if user has access to this schedule
+	hasAccess, err := scheduler.CheckUserAccessToSchedule(user, scheduleID)
+	if err != nil {
+		session.Set("error", "Error checking schedule access: "+err.Error())
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler")
+		return
+	}
+	if !hasAccess {
+		session.Set("error", "Access denied. You can only copy schedules from your department.")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler")
+		return
+	}
+
+	// Get the source schedule
+	sourceSchedule, err := scheduler.GetScheduleByID(scheduleID)
+	if err != nil {
+		session.Set("error", "Failed to load schedule: "+err.Error())
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler")
+		return
+	}
+
+	// Get department name
+	department, err := scheduler.GetDepartmentByID(sourceSchedule.DepartmentID)
+	if err != nil {
+		session.Set("error", "Failed to load department: "+err.Error())
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler")
+		return
+	}
+
+	// Get course count for this schedule
+	courses, err := scheduler.GetCoursesByScheduleID(scheduleID)
+	if err != nil {
+		session.Set("error", "Failed to load courses: "+err.Error())
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler")
+		return
+	}
+
+	// Create view model for source schedule
+	sourceScheduleView := struct {
+		ID          int
+		Term        string
+		Year        int
+		Department  string
+		CourseCount int
+	}{
+		ID:          sourceSchedule.ID,
+		Term:        sourceSchedule.Term,
+		Year:        sourceSchedule.Year,
+		Department:  department.Name,
+		CourseCount: len(courses),
+	}
+
+	// Get any error from session
+	errorMsg := session.Get("error")
+	session.Delete("error")
+	session.Save()
+
+	c.HTML(http.StatusOK, "copy_schedule.html", gin.H{
+		"User":           user,
+		"SourceSchedule": sourceScheduleView,
+		"Error":          errorMsg,
+		"CSRFToken":      csrf.GetToken(c),
+	})
+}
+
+// CopyScheduleGin handles the schedule copy submission
+func (scheduler *wmu_scheduler) CopyScheduleGin(c *gin.Context) {
+	user, err := scheduler.getCurrentUser(c)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/scheduler/login")
+		return
+	}
+
+	session := sessions.Default(c)
+
+	// Get form data
+	scheduleIDStr := c.PostForm("schedule_id")
+	newTerm := c.PostForm("term")
+	newYearStr := c.PostForm("year")
+	startDate := c.PostForm("start_date")
+	endDate := c.PostForm("end_date")
+
+	// Validate required fields
+	if scheduleIDStr == "" || newTerm == "" || newYearStr == "" {
+		session.Set("error", "Missing required fields")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/copy_schedule?schedule_id="+scheduleIDStr)
+		return
+	}
+
+	scheduleID, err := strconv.Atoi(scheduleIDStr)
+	if err != nil {
+		session.Set("error", "Invalid schedule ID")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler")
+		return
+	}
+
+	newYear, err := strconv.Atoi(newYearStr)
+	if err != nil || newYear < 2020 || newYear > 2050 {
+		session.Set("error", "Invalid year")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/copy_schedule?schedule_id="+scheduleIDStr)
+		return
+	}
+
+	// Validate term
+	validTerms := map[string]bool{"Fall": true, "Spring": true, "Summer": true}
+	if !validTerms[newTerm] {
+		session.Set("error", "Invalid term. Must be Fall, Spring, or Summer.")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/copy_schedule?schedule_id="+scheduleIDStr)
+		return
+	}
+
+	// Check if user has access to this schedule
+	hasAccess, err := scheduler.CheckUserAccessToSchedule(user, scheduleID)
+	if err != nil {
+		session.Set("error", "Error checking schedule access: "+err.Error())
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler")
+		return
+	}
+	if !hasAccess {
+		session.Set("error", "Access denied. You can only copy schedules from your department.")
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler")
+		return
+	}
+
+	// Get the source schedule
+	sourceSchedule, err := scheduler.GetScheduleByID(scheduleID)
+	if err != nil {
+		session.Set("error", "Failed to load source schedule: "+err.Error())
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler")
+		return
+	}
+
+	// Check if target schedule already exists
+	existingSchedule, err := scheduler.GetScheduleByTermYearDepartment(newTerm, newYear, sourceSchedule.DepartmentID)
+	if err == nil && existingSchedule != nil {
+		session.Set("error", fmt.Sprintf("Schedule for %s %d already exists for this department", newTerm, newYear))
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/copy_schedule?schedule_id="+scheduleIDStr)
+		return
+	}
+
+	// Copy the schedule
+	newScheduleID, err := scheduler.CopySchedule(scheduleID, newTerm, newYear, startDate, endDate)
+	if err != nil {
+		session.Set("error", "Failed to copy schedule: "+err.Error())
+		session.Save()
+		c.Redirect(http.StatusFound, "/scheduler/copy_schedule?schedule_id="+scheduleIDStr)
+		return
+	}
+
+	// Set success message
+	session.Set("success", fmt.Sprintf("Schedule successfully copied to %s %d with %d course(s)", newTerm, newYear, newScheduleID))
+	session.Save()
+	c.Redirect(http.StatusFound, "/scheduler")
+}
