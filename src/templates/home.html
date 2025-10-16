@@ -167,6 +167,26 @@
                     }
                 }
             </script>
+            <button type="button" onclick="copySchedule()">Copy</button>
+            <script>
+                function copySchedule() {
+                    var checked = document.querySelector('input[name="select_schedule"]:checked');
+                    if (checked) {
+                        window.location.href = '/scheduler/copy_schedule?schedule_id=' + encodeURIComponent(checked.value);
+                    } else {
+                        // Set session error message and reload
+                        fetch('/scheduler/set_error_message', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({message: 'Please select exactly one schedule to copy.'}),
+                        }).then(() => {
+                            window.location.reload();
+                        });
+                    }
+                }
+            </script>
             <button type="button" onclick="detectConflicts()">Detect Conflicts</button>
             <script>
                 function detectConflicts() {
