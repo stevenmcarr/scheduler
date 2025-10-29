@@ -1850,6 +1850,18 @@ func (scheduler *wmu_scheduler) ImportExcelHandler(c *gin.Context) {
 	yearStr := c.PostForm("year")
 	departmentIDStr := c.PostForm("department")
 
+	// Validate term
+	validTerms := map[string]bool{
+		"Fall":      true,
+		"Spring":    true,
+		"Summer I":  true,
+		"Summer II": true,
+	}
+	if !validTerms[term] {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid term. Must be Fall, Spring, Summer I, or Summer II"})
+		return
+	}
+
 	year, err := strconv.Atoi(yearStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid year"})
@@ -4860,7 +4872,7 @@ func (scheduler *wmu_scheduler) RenderCrosslistingsPageGin(c *gin.Context) {
 		enriched.UpdatedAt = cl.UpdatedAt
 
 		// Get course details for CRN1
-		course1, err := scheduler.GetCourseDetailsByCRN(cl.CRN1)
+		course1, err := scheduler.GetCourseDetailsByCRN(cl.CRN1, cl.ScheduleID1)
 		if err != nil {
 			AppLogger.LogError(fmt.Sprintf("Failed to get course details for CRN %d", cl.CRN1), err)
 			continue
@@ -4868,7 +4880,7 @@ func (scheduler *wmu_scheduler) RenderCrosslistingsPageGin(c *gin.Context) {
 		enriched.Course1 = course1
 
 		// Get course details for CRN2
-		course2, err := scheduler.GetCourseDetailsByCRN(cl.CRN2)
+		course2, err := scheduler.GetCourseDetailsByCRN(cl.CRN2, cl.ScheduleID2)
 		if err != nil {
 			AppLogger.LogError(fmt.Sprintf("Failed to get course details for CRN %d", cl.CRN2), err)
 			continue
@@ -5507,9 +5519,14 @@ func (scheduler *wmu_scheduler) CopyScheduleGin(c *gin.Context) {
 	}
 
 	// Validate term
-	validTerms := map[string]bool{"Fall": true, "Spring": true, "Summer": true}
+	validTerms := map[string]bool{
+		"Fall":      true,
+		"Spring":    true,
+		"Summer I":  true,
+		"Summer II": true,
+	}
 	if !validTerms[newTerm] {
-		session.Set("error", "Invalid term. Must be Fall, Spring, or Summer.")
+		session.Set("error", "Invalid term. Must be Fall, Spring, Summer I, or Summer II.")
 		session.Save()
 		c.Redirect(http.StatusFound, "/scheduler/copy_schedule?schedule_id="+scheduleIDStr)
 		return

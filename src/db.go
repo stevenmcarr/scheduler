@@ -1036,8 +1036,8 @@ func (scheduler *wmu_scheduler) AddOrUpdateCourse(
 	result, err = scheduler.database.Exec(`
 		UPDATE courses SET
 			section = ?, prefix_id = ?, course_number = ?, title = ?, min_credits = ?, max_credits = ?, min_contact = ?, max_contact = ?, cap = ?, approval = ?, lab = ?, instructor_id = ?, timeslot_id = ?, room_id = ?, mode = ?, status = ?, comment = ?
-		WHERE crn = ?
-	`, section, prefixID, courseNumber, title, minCredits, maxCredits, minContactHours, maxContactHours, cap, appr, lab, instructorVal, timeslotVal, roomVal, mode, status, comment, crn)
+		WHERE crn = ? AND schedule_id = ?
+	`, section, prefixID, courseNumber, title, minCredits, maxCredits, minContactHours, maxContactHours, cap, appr, lab, instructorVal, timeslotVal, roomVal, mode, status, comment, crn, scheduleID)
 
 	if err != nil {
 		return err
@@ -1052,16 +1052,16 @@ func (scheduler *wmu_scheduler) AddOrUpdateCourse(
 		return nil // Updated existing course
 	}
 
-	// Check if the CRN exists but no update was needed (all values were the same)
+	// Check if the CRN exists for this schedule but no update was needed (all values were the same)
 	var existingCRN int
-	err = scheduler.database.QueryRow("SELECT crn FROM courses WHERE crn = ?", crn).Scan(&existingCRN)
+	err = scheduler.database.QueryRow("SELECT crn FROM courses WHERE crn = ? AND schedule_id = ?", crn, scheduleID).Scan(&existingCRN)
 	if err == nil {
-		// CRN exists but no update was needed (all values were already the same)
+		// CRN exists in this schedule but no update was needed (all values were already the same)
 		return nil
 	}
 	if err != sql.ErrNoRows {
 		// Some other error occurred during the check
-		return fmt.Errorf("error checking for existing CRN: %v", err)
+		return fmt.Errorf("error checking for existing CRN in schedule: %v", err)
 	}
 
 	// CRN doesn't exist, so insert new course
@@ -1772,8 +1772,8 @@ func (scheduler *wmu_scheduler) GetAllCrosslistingsForCRN(crn int) ([]Crosslisti
 	return crosslistings, nil
 }
 
-// getCourseDetailsByCRN retrieves detailed course information by CRN
-func (scheduler *wmu_scheduler) GetCourseDetailsByCRN(crn int) (CourseDetail, error) {
+// GetCourseDetailsByCRN retrieves detailed course information by CRN and schedule_id
+func (scheduler *wmu_scheduler) GetCourseDetailsByCRN(crn int, scheduleID int) (CourseDetail, error) {
 	var course CourseDetail
 
 	query := `
@@ -1785,10 +1785,10 @@ func (scheduler *wmu_scheduler) GetCourseDetailsByCRN(crn int) (CourseDetail, er
 		FROM courses c
 		JOIN schedules s ON c.schedule_id = s.id
 		JOIN prefixes p ON c.prefix_id = p.id
-		WHERE c.crn = ? AND c.status != 'Deleted'
+		WHERE c.crn = ? AND c.schedule_id = ? AND c.status != 'Deleted'
 	`
 
-	err := scheduler.database.QueryRow(query, crn).Scan(
+	err := scheduler.database.QueryRow(query, crn, scheduleID).Scan(
 		&course.ID, &course.CRN, &course.Section, &course.ScheduleID,
 		&course.Prefix, &course.CourseNumber, &course.Title,
 		&course.InstructorID, &course.TimeSlotID, &course.RoomID,
