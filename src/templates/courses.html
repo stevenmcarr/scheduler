@@ -288,6 +288,18 @@
                         <option value="Deleted">Deleted</option>
                     </select>
                 </div>
+                <div class="filter-group">
+                    <label for="filter-mode">Mode</label>
+                    <select id="filter-mode" class="filter-input">
+                        <option value="">All Modes</option>
+                        <option value="IP">IP</option>
+                        <option value="FSO">FSO</option>
+                        <option value="PSO">PSO</option>
+                        <option value="H">H</option>
+                        <option value="CLAS">CLAS</option>
+                        <option value="AO">AO</option>
+                    </select>
+                </div>
                 <button type="button" class="clear-filters-btn" onclick="clearAllFilters()">Clear Filters</button>
             </div>
         </div>
@@ -452,7 +464,8 @@
                 'filter-course-number', 
                 'filter-title',
                 'filter-instructor',
-                'filter-status'
+                'filter-status',
+                'filter-mode'
             ];
             
             filterInputs.forEach(filterId => {
@@ -476,7 +489,8 @@
                 courseNumber: document.getElementById('filter-course-number').value.toLowerCase().trim(),
                 title: document.getElementById('filter-title').value.toLowerCase().trim(),
                 instructor: document.getElementById('filter-instructor').value.toLowerCase().trim(),
-                status: document.getElementById('filter-status').value.toLowerCase().trim()
+                status: document.getElementById('filter-status').value.toLowerCase().trim(),
+                mode: document.getElementById('filter-mode').value.toLowerCase().trim()
             };
             
             let visibleCount = 0;
@@ -507,6 +521,13 @@
                     status = statusSelect.value.toLowerCase();
                 }
                 
+                // For mode, get the selected option value
+                let mode = '';
+                const modeSelect = cells[13].querySelector('select');
+                if (modeSelect) {
+                    mode = modeSelect.value.toLowerCase();
+                }
+                
                 // Check if row matches all active filters
                 const matches = (
                     (!filters.crn || crn.includes(filters.crn)) &&
@@ -514,7 +535,8 @@
                     (!filters.courseNumber || courseNumber.includes(filters.courseNumber)) &&
                     (!filters.title || title.includes(filters.title)) &&
                     (!filters.instructor || instructor.includes(filters.instructor)) &&
-                    (!filters.status || status === filters.status)
+                    (!filters.status || status === filters.status) &&
+                    (!filters.mode || mode === filters.mode)
                 );
                 
                 if (matches) {
@@ -555,6 +577,7 @@
             document.getElementById('filter-title').value = '';
             document.getElementById('filter-instructor').value = '';
             document.getElementById('filter-status').value = '';
+            document.getElementById('filter-mode').value = '';
             
             // Show all rows
             const table = document.getElementById('courses-table');
