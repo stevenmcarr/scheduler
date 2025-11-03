@@ -569,20 +569,6 @@ func (scheduler *wmu_scheduler) SaveCoursesGin(c *gin.Context) {
 		return
 	}
 
-	// Determine current schedule ID from session; required for (crn, schedule_id) updates
-	scheduleIDStr, schedErr := scheduler.getCurrentSchedule(c)
-	if schedErr != nil {
-		AppLogger.LogError("No schedule selected in session for SaveCoursesGin", schedErr)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No schedule selected"})
-		return
-	}
-	scheduleInt, convErr := strconv.Atoi(scheduleIDStr)
-	if convErr != nil {
-		AppLogger.LogError("Invalid schedule ID in session for SaveCoursesGin", convErr)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid schedule ID"})
-		return
-	}
-
 	action := c.PostForm("action")
 	if action == "export" {
 		scheduler.ExportCoursesToExcel(c)
@@ -686,7 +672,8 @@ func (scheduler *wmu_scheduler) SaveCoursesGin(c *gin.Context) {
 			}
 		}
 
-		err = scheduler.AddOrUpdateCourse(crn, section, prefixID, courseNumber, title, minCredits, maxCredits, minContact, maxContact, cap, approval, lab, instructorID, timeslotID, roomID, mode, status, comment, scheduleInt)
+		// Update the course by ID - this allows CRN changes without creating a new row
+		err = scheduler.UpdateCourseByID(id, crn, section, prefixID, courseNumber, title, minCredits, maxCredits, minContact, maxContact, cap, approval, lab, instructorID, timeslotID, roomID, mode, status, comment)
 		if err != nil {
 			errors = append(errors, fmt.Sprintf("Failed to update course ID %d: %v", id, err))
 			continue
