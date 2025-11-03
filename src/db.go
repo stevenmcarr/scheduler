@@ -991,6 +991,59 @@ func (scheduler *wmu_scheduler) AddCourse(
 	return err
 }
 
+// UpdateCourseByID updates an existing course by its ID (used when editing courses in the UI)
+func (scheduler *wmu_scheduler) UpdateCourseByID(
+	courseID int,
+	crn int,
+	section int,
+	prefixID int,
+	courseNumber int,
+	title string,
+	minCredits int,
+	maxCredits int,
+	minContactHours int,
+	maxContactHours int,
+	cap int,
+	appr int,
+	lab int,
+	instructorID int,
+	timeslotID int,
+	roomID int,
+	mode string,
+	status string,
+	comment string,
+) error {
+	// Use nil for MySQL NULL if any of the IDs are -1
+	var instructorVal, timeslotVal, roomVal interface{}
+	if instructorID == -1 {
+		instructorVal = nil
+	} else {
+		instructorVal = instructorID
+	}
+	if timeslotID == -1 {
+		timeslotVal = nil
+	} else {
+		timeslotVal = timeslotID
+	}
+	if roomID == -1 {
+		roomVal = nil
+	} else {
+		roomVal = roomID
+	}
+
+	// Update the course by ID - this allows CRN to be changed
+	_, err := scheduler.database.Exec(`
+		UPDATE courses SET
+			crn = ?, section = ?, prefix_id = ?, course_number = ?, title = ?, 
+			min_credits = ?, max_credits = ?, min_contact = ?, max_contact = ?, cap = ?, 
+			approval = ?, lab = ?, instructor_id = ?, timeslot_id = ?, room_id = ?, 
+			mode = ?, status = ?, comment = ?
+		WHERE id = ?
+	`, crn, section, prefixID, courseNumber, title, minCredits, maxCredits, minContactHours, maxContactHours, cap, appr, lab, instructorVal, timeslotVal, roomVal, mode, status, comment, courseID)
+
+	return err
+}
+
 func (scheduler *wmu_scheduler) AddOrUpdateCourse(
 	crn int,
 	section int,
