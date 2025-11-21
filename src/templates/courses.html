@@ -335,9 +335,9 @@
                 <tbody>
                     {{range .Courses}}
                     <tr data-course-id="{{.ID}}"
-                        {{if eq .Status "Added"}}style="background-color: #e6f9e6;"{{end}}
-                        {{if eq .Status "Updated"}}style="background-color: #fffbe6;"{{end}}
-                        {{if eq .Status "Removed"}}style="background-color: #ffe6e6;"{{end}}>
+                        {{if eq .Status "Added"}}style="background-color: #b3ffb3;"{{end}}
+                        {{if eq .Status "Updated"}}style="background-color: #ffff99;"{{end}}
+                        {{if eq .Status "Removed"}}style="background-color: #ffb3b3;"{{end}}>
                         <td>
                             <input type="number" class="crn-input" value="{{.CRN}}" name="crn">
                         </td>
